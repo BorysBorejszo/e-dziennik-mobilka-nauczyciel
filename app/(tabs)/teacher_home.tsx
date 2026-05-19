@@ -41,6 +41,7 @@ export default function TeacherHome({ onNavigate }: Props) {
         { label: "Zachowanie", icon: "star-outline", color: palette.warning, tab: 3 },
         { label: "Frekwencja", icon: "stats-chart-outline", color: palette.info, tab: 4 },
         { label: "Wiadomości", icon: "chatbubble-outline", color: "#8b5cf6", tab: 5 },
+        { label: "Ogłoszenia", icon: "megaphone-outline", color: "#f97316", tab: 6 },
     ];
 
     return (

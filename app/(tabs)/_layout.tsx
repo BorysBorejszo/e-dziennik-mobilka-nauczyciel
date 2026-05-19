@@ -26,6 +26,7 @@ import {
 import { useTheme } from "../theme/ThemeContext";
 import MessagesPage from "./messages";
 import SettingsPage from "./settings";
+import TeacherAnnouncementsPage from "./teacher_announcements";
 import TeacherAttendancePage from "./teacher_attendance";
 import TeacherBehaviorPage from "./teacher_behavior";
 import TeacherGradesPage from "./teacher_grades";
@@ -36,7 +37,7 @@ export default function Layout() {
   const segments = useSegments();
 
   const routes = React.useMemo(() => {
-    return ["teacher_home", "teacher_schedule", "teacher_grades", "teacher_attendance", "teacher_behavior", "messages", "settings"];
+    return ["teacher_home", "teacher_schedule", "teacher_grades", "teacher_attendance", "teacher_behavior", "messages", "teacher_announcements", "settings"];
   }, []);
 
   // determine current active segment (last segment)
@@ -73,9 +74,9 @@ export default function Layout() {
 
   const combinedTranslate = React.useRef(Animated.add(offset, translateX)).current;
 
-  // 7 slots for teacher tabs
+  // 8 slots for teacher tabs
   const pageTranslates = React.useRef(
-    Array.from({ length: 7 }, (_, i) => Animated.add(combinedTranslate, i * screenWidth))
+    Array.from({ length: 8 }, (_, i) => Animated.add(combinedTranslate, i * screenWidth))
   ).current;
 
   const onGestureEvent = Animated.event(
@@ -84,7 +85,7 @@ export default function Layout() {
   );
 
   const tabLevels = React.useMemo(() =>
-    routes.map((_, i) => {
+    Array.from({ length: 8 }, (_, i) => {
       const active = pageTranslates[i].interpolate({
         inputRange: [-screenWidth, 0, screenWidth],
         outputRange: [0, 1, 0],
@@ -178,6 +179,7 @@ export default function Layout() {
     TeacherAttendancePage,
     TeacherBehaviorPage,
     MessagesPage,
+    TeacherAnnouncementsPage,
     SettingsPage,
   ];
 
@@ -231,15 +233,6 @@ export default function Layout() {
             >
               {routes.map((route, i) => {
                 const { active: activeLevel, inactive: inactiveLevel } = tabLevels[i];
-                const label =
-                  route === "teacher_home" ? "Główna"
-                  : route === "teacher_schedule" ? "Plan"
-                  : route === "teacher_grades" ? "Oceny"
-                  : route === "teacher_attendance" ? "Frekwencja"
-                  : route === "teacher_behavior" ? "Zachowanie"
-                  : route === "settings" ? "Ustawienia"
-                  : "Wiadomości";
-
                 return (
                   <TouchableOpacity
                     key={route}
@@ -259,34 +252,27 @@ export default function Layout() {
                       {/* Icons */}
                       <View style={styles.tabIconWrap}>
                         <Animated.View style={{ opacity: inactiveLevel }}>
-                          {route === "teacher_home" && <Entypo name="home" size={22} color={inactiveTint} />}
-                          {route === "teacher_schedule" && <Entypo name="calendar" size={22} color={inactiveTint} />}
-                          {route === "teacher_grades" && <Ionicons name="ribbon-outline" size={23} color={inactiveTint} />}
-                          {route === "teacher_attendance" && <Ionicons name="stats-chart-outline" size={23} color={inactiveTint} />}
-                          {route === "teacher_behavior" && <Ionicons name="star-outline" size={23} color={inactiveTint} />}
-                          {route === "messages" && <Entypo name="chat" size={22} color={inactiveTint} />}
-                          {route === "settings" && <Entypo name="cog" size={22} color={inactiveTint} />}
+                          {route === "teacher_home" && <Entypo name="home" size={26} color={inactiveTint} />}
+                          {route === "teacher_schedule" && <Entypo name="calendar" size={26} color={inactiveTint} />}
+                          {route === "teacher_grades" && <Ionicons name="ribbon-outline" size={27} color={inactiveTint} />}
+                          {route === "teacher_attendance" && <Ionicons name="stats-chart-outline" size={27} color={inactiveTint} />}
+                          {route === "teacher_behavior" && <Ionicons name="star-outline" size={27} color={inactiveTint} />}
+                          {route === "messages" && <Entypo name="chat" size={26} color={inactiveTint} />}
+                          {route === "teacher_announcements" && <Ionicons name="megaphone-outline" size={26} color={inactiveTint} />}
+                          {route === "settings" && <Entypo name="cog" size={26} color={inactiveTint} />}
                         </Animated.View>
                         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: activeLevel, alignItems: 'center', justifyContent: 'center' }]}>
-                          {route === "teacher_home" && <Entypo name="home" size={22} color={activeTint} />}
-                          {route === "teacher_schedule" && <Entypo name="calendar" size={22} color={activeTint} />}
-                          {route === "teacher_grades" && <Ionicons name="ribbon-outline" size={23} color={activeTint} />}
-                          {route === "teacher_attendance" && <Ionicons name="stats-chart-outline" size={23} color={activeTint} />}
-                          {route === "teacher_behavior" && <Ionicons name="star-outline" size={23} color={activeTint} />}
-                          {route === "messages" && <Entypo name="chat" size={22} color={activeTint} />}
-                          {route === "settings" && <Entypo name="cog" size={22} color={activeTint} />}
+                          {route === "teacher_home" && <Entypo name="home" size={26} color={activeTint} />}
+                          {route === "teacher_schedule" && <Entypo name="calendar" size={26} color={activeTint} />}
+                          {route === "teacher_grades" && <Ionicons name="ribbon-outline" size={27} color={activeTint} />}
+                          {route === "teacher_attendance" && <Ionicons name="stats-chart-outline" size={27} color={activeTint} />}
+                          {route === "teacher_behavior" && <Ionicons name="star-outline" size={27} color={activeTint} />}
+                          {route === "messages" && <Entypo name="chat" size={26} color={activeTint} />}
+                          {route === "teacher_announcements" && <Ionicons name="megaphone-outline" size={26} color={activeTint} />}
+                          {route === "settings" && <Entypo name="cog" size={26} color={activeTint} />}
                         </Animated.View>
                       </View>
 
-                      {/* Labels */}
-                      <View style={styles.tabLabelWrap}>
-                        <Animated.Text numberOfLines={1} ellipsizeMode="tail" style={[styles.tabLabel, { color: palette.textMuted, opacity: inactiveLevel }]}>
-                          {label}
-                        </Animated.Text>
-                        <Animated.Text numberOfLines={1} ellipsizeMode="tail" style={[styles.tabLabel, styles.tabLabelOverlay, { color: activeTint, opacity: activeLevel }]}>
-                          {label}
-                        </Animated.Text>
-                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -313,7 +299,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tabPill: {
-    minHeight: 56,
+    minHeight: 44,
     borderRadius: 22,
     overflow: 'hidden',
     alignItems: "center",
@@ -325,20 +311,5 @@ const styles = StyleSheet.create({
     minHeight: 24,
     justifyContent: "center",
     alignItems: "center",
-  },
-  tabLabelWrap: {
-    marginTop: 5,
-    alignSelf: 'stretch',
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  tabLabelOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
   },
 });

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useEffect, useState } from "react";
 import {
+    ActivityIndicator,
     Alert,
     RefreshControl,
     ScrollView,
@@ -11,14 +12,14 @@ import {
     View,
 } from "react-native";
 import {
-    AttendanceEntry,
     AttendanceStatus,
-    getAttendanceForStudent,
     getAttendanceStatuses,
+    getClasses,
     getLessonHours,
-    getStudents,
+    getStudentsByClass,
     LessonHour,
     markAttendance,
+    SchoolClass,
     Student,
 } from "../api/teacher";
 import Header from "../components/Header";
@@ -30,210 +31,206 @@ export default function TeacherAttendance() {
     const palette = getEditorialPalette(theme);
     const shadow = cardShadow(theme);
 
-    const [students, setStudents] = useState<Student[]>([]);
+    const [classes, setClasses] = useState<SchoolClass[]>([]);
     const [statuses, setStatuses] = useState<AttendanceStatus[]>([]);
     const [lessonHours, setLessonHours] = useState<LessonHour[]>([]);
     const [refreshing, setRefreshing] = useState(false);
-    const [submitting, setSubmitting] = useState(false);
 
-    const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-    const [selectedStatus, setSelectedStatus] = useState<AttendanceStatus | null>(null);
-    const [selectedHour, setSelectedHour] = useState<LessonHour | null>(null);
+    const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
     const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
-    const [studentSearch, setStudentSearch] = useState("");
-    const [showStudentPicker, setShowStudentPicker] = useState(false);
-    const [recentEntries, setRecentEntries] = useState<AttendanceEntry[]>([]);
+    const [selectedHour, setSelectedHour] = useState<LessonHour | null>(null);
+
+    const [students, setStudents] = useState<Student[]>([]);
+    const [loadingStudents, setLoadingStudents] = useState(false);
+    // map: student.id → status.id (undefined = not set)
+    const [statusMap, setStatusMap] = useState<Record<number, number | undefined>>({});
+
+    const [submitting, setSubmitting] = useState(false);
+    const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
 
     const load = async () => {
-        const [s, st, lh] = await Promise.all([
-            getStudents(),
+        const [cls, st, lh] = await Promise.all([
+            getClasses(),
             getAttendanceStatuses(),
             getLessonHours(),
         ]);
-        setStudents(s);
+        setClasses(cls);
         setStatuses(st);
         setLessonHours(lh);
     };
 
-    useEffect(() => { load(); }, []);
+    useEffect(() => { void load(); }, []);
 
     const onRefresh = async () => {
         setRefreshing(true);
         await load();
+        if (selectedClass) await loadStudents(selectedClass);
         setRefreshing(false);
     };
 
-    const filteredStudents = students.filter(s => {
-        const name = `${s.first_name ?? ''} ${s.last_name ?? ''} ${s.username ?? ''}`.toLowerCase();
-        return name.includes(studentSearch.toLowerCase());
-    });
-
-    const studentName = (s: Student) =>
-        `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim() || s.username || `#${s.id}`;
-
-    const handleStudentSelect = async (s: Student) => {
-        setSelectedStudent(s);
-        setShowStudentPicker(false);
-        setStudentSearch("");
-        const entries = await getAttendanceForStudent(s.id);
-        setRecentEntries(entries.slice(0, 15));
+    const loadStudents = async (cls: SchoolClass) => {
+        setLoadingStudents(true);
+        setStudents([]);
+        setStatusMap({});
+        setSavedIds(new Set());
+        const list = await getStudentsByClass(cls.id);
+        setStudents(list);
+        // Pre-select first status (usually "Obecny") for all students
+        if (statuses.length > 0) {
+            const defaultId = statuses[0].id;
+            const map: Record<number, number> = {};
+            list.forEach(s => { map[s.id] = defaultId; });
+            setStatusMap(map);
+        }
+        setLoadingStudents(false);
     };
 
-    const handleSubmit = async () => {
-        if (!selectedStudent) { Alert.alert("Błąd", "Wybierz ucznia"); return; }
-        if (!date) { Alert.alert("Błąd", "Podaj datę"); return; }
+    const handleClassSelect = (cls: SchoolClass) => {
+        setSelectedClass(cls);
+        void loadStudents(cls);
+    };
 
+    const setStudentStatus = (studentId: number, statusId: number) => {
+        setStatusMap(prev => ({ ...prev, [studentId]: statusId }));
+    };
+
+    const handleSaveAll = async () => {
+        if (!selectedClass) { Alert.alert("Błąd", "Wybierz klasę."); return; }
+        if (!date) { Alert.alert("Błąd", "Podaj datę."); return; }
+        if (students.length === 0) { Alert.alert("Błąd", "Brak uczniów w klasie."); return; }
+
+        const unset = students.filter(s => statusMap[s.id] === undefined);
+        if (unset.length > 0) {
+            Alert.alert(
+                "Niezaznaczone",
+                `${unset.length} uczniów nie ma zaznaczonego statusu. Kontynuować?`,
+                [
+                    { text: "Anuluj", style: "cancel" },
+                    { text: "Zapisz zaznaczonych", onPress: () => void doSave() },
+                ],
+            );
+            return;
+        }
+        await doSave();
+    };
+
+    const doSave = async () => {
         setSubmitting(true);
-        const entry: AttendanceEntry = {
-            uczen: selectedStudent.id,
-            data: date,
-            status: selectedStatus?.id,
-            godzina_lekcyjna: selectedHour?.id,
-        };
-        const ok = await markAttendance(entry);
+        let ok = 0;
+        let fail = 0;
+        const newSaved = new Set(savedIds);
+
+        for (const student of students) {
+            const statusId = statusMap[student.id];
+            if (statusId === undefined) continue;
+            const result = await markAttendance({
+                uczen: student.id,
+                data: date,
+                status: statusId,
+                godzina_lekcyjna: selectedHour?.id,
+            });
+            if (result) {
+                ok++;
+                newSaved.add(student.id);
+            } else {
+                fail++;
+            }
+        }
+
+        setSavedIds(newSaved);
         setSubmitting(false);
 
-        if (ok) {
-            Alert.alert("Sukces", `Frekwencja zapisana dla ${studentName(selectedStudent)}`);
-            const entries = await getAttendanceForStudent(selectedStudent.id);
-            setRecentEntries(entries.slice(0, 15));
+        if (fail === 0) {
+            Alert.alert("Sukces", `Zapisano frekwencję dla ${ok} uczniów.`);
         } else {
-            Alert.alert("Błąd", "Nie udało się zapisać frekwencji");
+            Alert.alert("Częściowy sukces", `Zapisano: ${ok}, błąd: ${fail}.`);
         }
     };
 
+    const studentName = (s: Student) =>
+        `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() || s.username || `#${s.id}`;
+
     const statusColor = (s: AttendanceStatus) => {
-        const name = s.nazwa?.toLowerCase() ?? s.skrot?.toLowerCase() ?? "";
+        const name = (s.nazwa ?? s.skrot ?? "").toLowerCase();
         if (name.includes("obecn") || name === "ob") return palette.success;
         if (name.includes("nieob") || name === "nb") return palette.danger;
         if (name.includes("spóźn") || name.includes("sp")) return palette.warning;
         return palette.info;
     };
 
+    const statusLabel = (s: AttendanceStatus) =>
+        s.skrot ?? s.nazwa?.slice(0, 3) ?? "?";
+
+    const savedCount = students.filter(s => savedIds.has(s.id)).length;
+    const readyCount = students.filter(s => statusMap[s.id] !== undefined).length;
+
     return (
         <View style={[styles.root, { backgroundColor: palette.background }]}>
-            <Header title="Frekwencja" subtitle="Zaznacz obecność ucznia" />
+            <Header
+                title="Frekwencja"
+                subtitle={selectedClass ? `Klasa ${selectedClass.nazwa}` : "Wybierz klasę"}
+            />
             <ScrollView
                 style={{ flex: 1 }}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.content}
             >
+                <View style={styles.body}>
 
-            <View style={styles.body}>
-                {/* Section header */}
-                <View style={styles.sectionHeader}>
-                    <Text style={[T.eyebrow, { color: palette.textSoft }]}>NOWY WPIS FREKWENCJI</Text>
-                </View>
-
-                {/* Form card */}
-                <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
-
-                    {/* Student picker */}
-                    <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Uczeń</Text>
-                    <TouchableOpacity
-                        style={[styles.selector, { backgroundColor: palette.inputSurface }]}
-                        onPress={() => setShowStudentPicker(v => !v)}
-                    >
-                        <Text style={[T.body, { color: selectedStudent ? palette.text : palette.textSoft, flex: 1 }]}>
-                            {selectedStudent ? studentName(selectedStudent) : "Wybierz ucznia..."}
-                        </Text>
-                        <Ionicons
-                            name={showStudentPicker ? "chevron-up" : "chevron-down"}
-                            size={18}
-                            color={palette.textSoft}
-                        />
-                    </TouchableOpacity>
-
-                    {showStudentPicker && (
-                        <View style={styles.dropdown}>
-                            <TextInput
-                                value={studentSearch}
-                                onChangeText={setStudentSearch}
-                                placeholder="Szukaj ucznia..."
-                                placeholderTextColor={palette.textSoft}
-                                style={[styles.searchInput, { backgroundColor: palette.inputSurface, color: palette.text }]}
-                            />
-                            <View style={styles.dropdownList}>
-                                <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                                    {filteredStudents.map(s => (
-                                        <TouchableOpacity
-                                            key={s.id}
-                                            style={[
-                                                styles.dropdownItem,
-                                                selectedStudent?.id === s.id && { backgroundColor: palette.primaryFixed },
-                                            ]}
-                                            onPress={() => handleStudentSelect(s)}
-                                        >
-                                            <Text style={[T.body, { color: palette.text }]}>
-                                                {studentName(s)}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                    {filteredStudents.length === 0 && (
-                                        <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>
-                                            Brak wyników
-                                        </Text>
-                                    )}
-                                </ScrollView>
-                            </View>
-                        </View>
-                    )}
-
-                    <View style={styles.gap} />
-
-                    {/* Date */}
-                    <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>
-                        Data (RRRR-MM-DD)
+                    {/* Class picker */}
+                    <Text style={[T.eyebrow, styles.sectionLabel, { color: palette.textSoft }]}>
+                        KLASA
                     </Text>
-                    <TextInput
-                        value={date}
-                        onChangeText={setDate}
-                        placeholder="2024-01-15"
-                        placeholderTextColor={palette.textSoft}
-                        style={[styles.textInput, { backgroundColor: palette.inputSurface, color: palette.text }]}
-                    />
-
-                    <View style={styles.gap} />
-
-                    {/* Status pills */}
-                    <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>
-                        Status obecności
-                    </Text>
-                    <View style={styles.pillRow}>
-                        {statuses.map(s => {
-                            const active = selectedStatus?.id === s.id;
-                            const color = statusColor(s);
+                    <View style={styles.classChips}>
+                        {classes.map(cls => {
+                            const active = selectedClass?.id === cls.id;
                             return (
                                 <TouchableOpacity
-                                    key={s.id}
-                                    onPress={() => setSelectedStatus(s)}
+                                    key={cls.id}
+                                    onPress={() => handleClassSelect(cls)}
+                                    activeOpacity={0.8}
                                     style={[
-                                        styles.statusPill,
+                                        styles.classChip,
                                         {
-                                            backgroundColor: active ? color : palette.inputSurface,
+                                            backgroundColor: active ? palette.primary : palette.surface,
+                                            borderColor: active ? palette.primary : palette.outline,
                                         },
+                                        !active && shadow,
                                     ]}
                                 >
-                                    <Text style={[T.labelBold, { color: active ? "#fff" : palette.text }]}>
-                                        {s.skrot ?? s.nazwa}
+                                    <Text style={[T.labelBold, { color: active ? palette.onPrimary : palette.text }]}>
+                                        {cls.nazwa}
                                     </Text>
                                 </TouchableOpacity>
                             );
                         })}
-                        {statuses.length === 0 && (
-                            <Text style={[T.label, { color: palette.textMuted }]}>Brak statusów</Text>
+                        {classes.length === 0 && (
+                            <Text style={[T.label, { color: palette.textMuted }]}>Brak klas</Text>
                         )}
                     </View>
 
-                    {/* Lesson hours */}
+                    {/* Date + hour */}
+                    <Text style={[T.eyebrow, styles.sectionLabel, { color: palette.textSoft }]}>
+                        DATA
+                    </Text>
+                    <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
+                        <TextInput
+                            value={date}
+                            onChangeText={setDate}
+                            placeholder="RRRR-MM-DD"
+                            placeholderTextColor={palette.textSoft}
+                            style={[T.body, styles.dateInput, { color: palette.text }]}
+                        />
+                    </View>
+
                     {lessonHours.length > 0 && (
                         <>
-                            <View style={styles.gap} />
-                            <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>
-                                Godzina lekcyjna (opcjonalnie)
+                            <Text style={[T.eyebrow, styles.sectionLabel, { color: palette.textSoft }]}>
+                                GODZINA LEKCYJNA (OPCJONALNIE)
                             </Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourScroll}>
                                 <View style={styles.hourRow}>
                                     {lessonHours.map(h => {
                                         const active = selectedHour?.id === h.id;
@@ -241,16 +238,21 @@ export default function TeacherAttendance() {
                                             <TouchableOpacity
                                                 key={h.id}
                                                 onPress={() => setSelectedHour(prev => prev?.id === h.id ? null : h)}
+                                                activeOpacity={0.8}
                                                 style={[
                                                     styles.hourChip,
-                                                    {
-                                                        backgroundColor: active ? palette.primary : palette.inputSurface,
-                                                    },
+                                                    { backgroundColor: active ? palette.primary : palette.surface },
+                                                    !active && shadow,
                                                 ]}
                                             >
-                                                <Text style={[T.meta, { color: active ? palette.onPrimary : palette.text }]}>
-                                                    {h.numer}. {h.godzina_od}–{h.godzina_do}
+                                                <Text style={[T.labelBold, { color: active ? palette.onPrimary : palette.text }]}>
+                                                    {h.numer || h.id}
                                                 </Text>
+                                                {h.godzina_od ? (
+                                                    <Text style={[T.meta, { color: active ? palette.onPrimary : palette.textSoft, marginTop: 2 }]}>
+                                                        {h.godzina_od}
+                                                    </Text>
+                                                ) : null}
                                             </TouchableOpacity>
                                         );
                                     })}
@@ -259,165 +261,280 @@ export default function TeacherAttendance() {
                         </>
                     )}
 
-                    <View style={styles.gapLg} />
+                    {/* Students list */}
+                    {selectedClass && (
+                        <>
+                            <View style={styles.studentsHeader}>
+                                <Text style={[T.eyebrow, { color: palette.textSoft }]}>
+                                    UCZNIOWIE — {students.length} os.
+                                </Text>
+                                {students.length > 0 && (
+                                    <Text style={[T.meta, { color: palette.textMuted }]}>
+                                        {readyCount}/{students.length} zaznaczonych
+                                        {savedCount > 0 ? ` · ${savedCount} zapisanych` : ""}
+                                    </Text>
+                                )}
+                            </View>
 
-                    {/* Submit */}
-                    <TouchableOpacity
-                        onPress={handleSubmit}
-                        disabled={submitting}
-                        style={[styles.submitBtn, { backgroundColor: palette.primary, opacity: submitting ? 0.6 : 1 }]}
-                    >
-                        <Text style={[T.labelBold, { color: palette.onPrimary, fontSize: 15 }]}>
-                            {submitting ? "Zapisywanie..." : "Zapisz frekwencję"}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                            {loadingStudents ? (
+                                <View style={styles.loadingBox}>
+                                    <ActivityIndicator color={palette.primary} />
+                                    <Text style={[T.label, { color: palette.textSoft, marginTop: S[2] }]}>
+                                        Ładowanie uczniów...
+                                    </Text>
+                                </View>
+                            ) : students.length === 0 ? (
+                                <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
+                                    <Text style={[T.label, { color: palette.textMuted, textAlign: "center", padding: S[4] }]}>
+                                        Brak uczniów w tej klasie
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={styles.studentList}>
+                                    {students.map((student, idx) => {
+                                        const currentStatusId = statusMap[student.id];
+                                        const isSaved = savedIds.has(student.id);
+                                        return (
+                                            <View
+                                                key={student.id}
+                                                style={[
+                                                    styles.studentRow,
+                                                    { backgroundColor: palette.surface },
+                                                    shadow,
+                                                ]}
+                                            >
+                                                {/* Top row: index + name + active status badge */}
+                                                <View style={styles.studentTopRow}>
+                                                    <View style={[styles.indexBadge, { backgroundColor: palette.surfaceMid }]}>
+                                                        <Text style={[T.meta, { color: palette.textMuted }]}>
+                                                            {idx + 1}
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={[T.bodyMedium, styles.studentNameText, { color: palette.text }]} numberOfLines={1}>
+                                                        {studentName(student)}
+                                                    </Text>
 
-                {/* Recent entries */}
-                {recentEntries.length > 0 && (
-                    <>
-                        <View style={styles.sectionHeader}>
-                            <Text style={[T.eyebrow, { color: palette.textSoft }]}>
-                                HISTORIA — {selectedStudent ? studentName(selectedStudent).toUpperCase() : ''}
+                                                    {/* Prominent selected status */}
+                                                    {currentStatusId !== undefined ? (() => {
+                                                        const activeSt = statuses.find(s => s.id === currentStatusId);
+                                                        const color = activeSt ? statusColor(activeSt) : palette.textSoft;
+                                                        return (
+                                                            <View style={[styles.activeStatusBadge, { backgroundColor: color }]}>
+                                                                {isSaved && <Ionicons name="checkmark" size={12} color="#fff" style={{ marginRight: 3 }} />}
+                                                                <Text style={[T.labelBold, { color: "#fff", fontSize: 13 }]}>
+                                                                    {activeSt ? statusLabel(activeSt) : "—"}
+                                                                </Text>
+                                                            </View>
+                                                        );
+                                                    })() : (
+                                                        <View style={[styles.activeStatusBadge, { backgroundColor: palette.surfaceMid }]}>
+                                                            <Text style={[T.meta, { color: palette.textMuted }]}>—</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+
+                                                {/* Bottom row: selection chips */}
+                                                <View style={styles.statusPills}>
+                                                    {statuses.map(st => {
+                                                        const active = currentStatusId === st.id;
+                                                        const color = statusColor(st);
+                                                        return (
+                                                            <TouchableOpacity
+                                                                key={st.id}
+                                                                onPress={() => setStudentStatus(student.id, st.id)}
+                                                                activeOpacity={0.8}
+                                                                style={[
+                                                                    styles.statusPill,
+                                                                    {
+                                                                        backgroundColor: active ? color + "22" : palette.surfaceLow,
+                                                                        borderWidth: 1.5,
+                                                                        borderColor: active ? color : palette.outlineVariant,
+                                                                    },
+                                                                ]}
+                                                            >
+                                                                <Text style={[
+                                                                    T.meta,
+                                                                    {
+                                                                        color: active ? color : palette.textMuted,
+                                                                        fontWeight: active ? "700" : "400",
+                                                                    },
+                                                                ]}>
+                                                                    {statusLabel(st)}
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        );
+                                                    })}
+                                                </View>
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            )}
+                        </>
+                    )}
+
+                    {!selectedClass && (
+                        <View style={[styles.emptyHint, { backgroundColor: palette.surface }, shadow]}>
+                            <Ionicons name="people-outline" size={32} color={palette.textSoft} />
+                            <Text style={[T.bodyMedium, { color: palette.textMuted, marginTop: S[2] }]}>
+                                Wybierz klasę powyżej
+                            </Text>
+                            <Text style={[T.label, { color: palette.textSoft, marginTop: S[1], textAlign: "center" }]}>
+                                Pojawi się lista uczniów, dla których możesz zaznaczyć frekwencję
                             </Text>
                         </View>
-
-                        {recentEntries.map((e, i) => {
-                            const st = statuses.find(s => s.id === e.status);
-                            const color = st ? statusColor(st) : palette.textSoft;
-                            return (
-                                <View
-                                    key={e.id ?? i}
-                                    style={[styles.historyRow, { backgroundColor: palette.surface }, shadow]}
-                                >
-                                    <View style={[styles.historyBadge, { backgroundColor: color }]}>
-                                        <Text style={[T.meta, { color: "#fff" }]}>
-                                            {st?.skrot ?? "?"}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.historyContent}>
-                                        <Text style={[T.bodyMedium, { color: palette.text }]}>{e.data}</Text>
-                                        {st ? (
-                                            <Text style={[T.label, { color: palette.textMuted, marginTop: 2 }]}>
-                                                {st.nazwa}
-                                            </Text>
-                                        ) : null}
-                                    </View>
-                                </View>
-                            );
-                        })}
-                    </>
-                )}
-            </View>
+                    )}
+                </View>
             </ScrollView>
+
+            {/* Save bar */}
+            {selectedClass && students.length > 0 && (
+                <View style={[styles.saveBar, { backgroundColor: palette.background }]}>
+                    <TouchableOpacity
+                        onPress={() => void handleSaveAll()}
+                        disabled={submitting}
+                        activeOpacity={0.85}
+                        style={[
+                            styles.saveBtn,
+                            { backgroundColor: palette.primary, opacity: submitting ? 0.6 : 1 },
+                        ]}
+                    >
+                        {submitting ? (
+                            <ActivityIndicator color={palette.onPrimary} />
+                        ) : (
+                            <>
+                                <Ionicons name="save-outline" size={18} color={palette.onPrimary} style={{ marginRight: S[2] }} />
+                                <Text style={[T.labelBold, { color: palette.onPrimary }]}>
+                                    Zapisz frekwencję ({readyCount}/{students.length})
+                                </Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
+            )}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    root: {
-        flex: 1,
-    },
+    root: { flex: 1 },
+    content: { paddingBottom: 100 },
     body: {
         paddingHorizontal: S[4],
-        paddingBottom: S[8],
+        paddingTop: S[2],
     },
-    sectionHeader: {
-        paddingVertical: S[3],
+    sectionLabel: {
+        marginTop: S[5],
+        marginBottom: S[2],
     },
-    card: {
-        borderRadius: R.lg,
-        padding: S[4],
-        marginBottom: S[4],
-    },
-    fieldLabel: {
-        marginBottom: S[1],
-    },
-    selector: {
-        borderRadius: R.md,
-        paddingHorizontal: S[3],
-        paddingVertical: S[3],
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    dropdown: {
-        marginTop: S[2],
-        borderRadius: R.md,
-        overflow: "hidden",
-    },
-    dropdownList: {
-        maxHeight: 200,
-    },
-    dropdownItem: {
-        paddingHorizontal: S[3],
-        paddingVertical: S[2] + 2,
-        borderRadius: R.sm,
-    },
-    searchInput: {
-        borderRadius: R.md,
-        paddingHorizontal: S[3],
-        paddingVertical: S[2] + 2,
-        fontSize: 15,
-        marginBottom: S[1],
-    },
-    emptyMsg: {
-        textAlign: "center",
-        padding: S[3],
-    },
-    textInput: {
-        borderRadius: R.md,
-        paddingHorizontal: S[3],
-        paddingVertical: S[3],
-        fontSize: 15,
-    },
-    pillRow: {
+    classChips: {
         flexDirection: "row",
         flexWrap: "wrap",
         gap: S[2],
     },
-    statusPill: {
-        paddingHorizontal: S[3],
-        paddingVertical: S[2] + 2,
-        borderRadius: R.md,
+    classChip: {
+        borderRadius: R.full,
+        borderWidth: 1,
+        paddingHorizontal: S[4],
+        paddingVertical: S[2],
+    },
+    card: {
+        borderRadius: R.lg,
+        paddingHorizontal: S[4],
+        paddingVertical: S[3],
+    },
+    dateInput: {
+        padding: 0,
+        margin: 0,
+    },
+    hourScroll: {
+        marginBottom: S[2],
     },
     hourRow: {
         flexDirection: "row",
         gap: S[2],
     },
     hourChip: {
+        borderRadius: R.md,
         paddingHorizontal: S[3],
         paddingVertical: S[2],
-        borderRadius: R.md,
-    },
-    gap: {
-        height: S[4],
-    },
-    gapLg: {
-        height: S[5],
-    },
-    submitBtn: {
-        borderRadius: R.full,
-        height: 52,
         alignItems: "center",
-        justifyContent: "center",
+        minWidth: 52,
     },
-    historyRow: {
+    studentsHeader: {
         flexDirection: "row",
         alignItems: "center",
+        justifyContent: "space-between",
+        marginTop: S[5],
+        marginBottom: S[2],
+    },
+    loadingBox: {
+        alignItems: "center",
+        paddingVertical: S[8],
+    },
+    studentList: {
+        gap: S[2],
+    },
+    studentRow: {
         borderRadius: R.lg,
         padding: S[3],
-        marginBottom: S[2],
-        gap: S[3],
+        gap: S[2],
     },
-    historyBadge: {
-        width: 36,
-        height: 36,
-        borderRadius: R.md,
+    studentTopRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: S[2],
+    },
+    indexBadge: {
+        width: 28,
+        height: 28,
+        borderRadius: R.full,
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
     },
-    historyContent: {
+    studentNameText: {
         flex: 1,
+    },
+    activeStatusBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderRadius: R.md,
+        paddingHorizontal: S[3],
+        paddingVertical: S[1] + 2,
+        flexShrink: 0,
+        minWidth: 44,
+        justifyContent: "center",
+    },
+    statusPills: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: S[1] + 2,
+        paddingLeft: 28 + S[2],
+    },
+    statusPill: {
+        borderRadius: R.sm,
+        paddingHorizontal: S[2] + 2,
+        paddingVertical: S[1] + 1,
+    },
+    emptyHint: {
+        borderRadius: R.lg,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: S[8],
+        paddingHorizontal: S[6],
+        marginTop: S[6],
+    },
+    saveBar: {
+        paddingHorizontal: S[4],
+        paddingBottom: S[4],
+        paddingTop: S[2],
+    },
+    saveBtn: {
+        height: 56,
+        borderRadius: R.full,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
     },
 });

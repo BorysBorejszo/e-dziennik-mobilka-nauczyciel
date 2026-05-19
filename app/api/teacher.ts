@@ -284,7 +284,12 @@ export const getAttendanceStatuses = async (): Promise<AttendanceStatus[]> => {
     });
     if (!res.ok) return [];
     const data = await res.json().catch(() => []);
-    return Array.isArray(data) ? data : (data.results ?? []);
+    const list: any[] = Array.isArray(data) ? data : (data.results ?? []);
+    return list.map((item: any): AttendanceStatus => ({
+      id: Number(item.id ?? item.pk),
+      nazwa: item.nazwa ?? item.Wartosc ?? item.wartosc ?? item.name ?? item.value ?? String(item.id),
+      skrot: item.skrot ?? item.Skrot ?? item.abbreviation ?? item.short ?? undefined,
+    }));
   } catch {
     return [];
   }
@@ -324,7 +329,13 @@ export const getLessonHours = async (): Promise<LessonHour[]> => {
     });
     if (!res.ok) return [];
     const data = await res.json().catch(() => []);
-    return Array.isArray(data) ? data : (data.results ?? []);
+    const list: any[] = Array.isArray(data) ? data : (data.results ?? []);
+    return list.map((item: any): LessonHour => ({
+      id: Number(item.id ?? item.pk),
+      numer: Number(item.numer ?? item.nr ?? item.number ?? item.kolejnosc ?? item.id),
+      godzina_od: item.godzina_od ?? item.od ?? item.start ?? item.czas_od ?? item.poczatek ?? "",
+      godzina_do: item.godzina_do ?? item.do ?? item.end ?? item.czas_do ?? item.koniec ?? "",
+    }));
   } catch {
     return [];
   }
