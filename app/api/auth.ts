@@ -8,6 +8,8 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { API_BASE_URL } from "./config";
+import { PROFILE_ENDPOINTS } from "./endpointUtils";
 
 export type LoginResponse = {
   access: string;
@@ -25,8 +27,24 @@ export class ApiError extends Error {
   }
 }
 
+export interface JWTPayload {
+  exp?: number;
+  iat?: number;
+  user_id?: number;
+  uczen_id?: number;
+  nauczyciel_id?: number;
+  dyrektor_id?: number;
+  role?: string;
+  account_type?: string;
+  klasa_id?: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  [key: string]: unknown;
+}
+
 // Simple JWT decode helper
-export const decodeJWT = (token: string): any => {
+export const decodeJWT = (token: string): JWTPayload | null => {
   try {
     const base64Url = token.split(".")[1];
     const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
@@ -36,7 +54,7 @@ export const decodeJWT = (token: string): any => {
         .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
         .join(""),
     );
-    return JSON.parse(jsonPayload);
+    return JSON.parse(jsonPayload) as JWTPayload;
   } catch (e) {
     // Fallback if atob is not available or fails
     console.warn("JWT decode failed", e);
@@ -69,9 +87,7 @@ if (typeof global.atob === "undefined") {
   };
 }
 
-// default to the remote dziennik server
-// default to the remote dziennik server (prefer HTTPS)
-let BASE_URL = 'https://modea.polandcentral.cloudapp.azure.com';
+let BASE_URL = API_BASE_URL;
 const ACCESS_KEY = '@e-dziennik:access';
 const REFRESH_KEY = '@e-dziennik:refresh';
 
@@ -189,7 +205,17 @@ export const storeTokens = async (access: string, refresh: string) => {
 
 export const getAccessToken = async (): Promise<string | null> => {
   try {
-    return await AsyncStorage.getItem(ACCESS_KEY);
+    const token = await AsyncStorage.getItem(ACCESS_KEY);
+    if (!token) return null;
+    const payload = decodeJWT(token);
+    if (payload?.exp !== undefined) {
+      const expiresIn = payload.exp * 1000 - Date.now();
+      if (expiresIn < 60_000) {
+        const refreshed = await refreshAuth();
+        return refreshed?.access ?? null;
+      }
+    }
+    return token;
   } catch {
     return null;
   }
@@ -221,7 +247,8 @@ export const getDjangoIdFromToken = async (): Promise<number | null> => {
         if (!Number.isNaN(num) && num > 0) return num;
         // payload.user may be an object
         if (key === "user" && typeof val === "object" && val !== null) {
-          const inner = Number(val.id ?? val.user_id ?? val.pk ?? null);
+          const u = val as Record<string, unknown>;
+          const inner = Number(u.id ?? u.user_id ?? u.pk ?? null);
           if (!Number.isNaN(inner) && inner > 0) return inner;
         }
       }
@@ -355,17 +382,7 @@ export default {
 // Attempt to resolve the current user's Django user.id by querying common profile endpoints.
 // Returns numeric id when found or null.
 export const getCurrentDjangoUserId = async (): Promise<number | null> => {
-  const endpoints = [
-    "/api/auth/user/",
-    "/api/auth/me/",
-    "/api/users/me/",
-    "/api/user/",
-    "/api/profile/",
-    "/api/uzytkownicy/me/",
-    "/api/uczniowie/me/",
-  ];
-
-  for (const ep of endpoints) {
+  for (const ep of PROFILE_ENDPOINTS) {
     try {
       const url = ep.startsWith("http")
         ? ep

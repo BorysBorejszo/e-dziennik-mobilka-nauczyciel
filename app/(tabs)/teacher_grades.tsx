@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Animated,
+    FlatList,
     Modal,
     PanResponder,
     Pressable,
@@ -456,38 +457,216 @@ export default function TeacherGrades() {
         </>
     );
 
-    // ── reusable student table ────────────────────────────────────────────────
-    const renderStudentTable = (
-        list: Student[],
-        onAdd: (s: Student) => void,
-        rightLabel: string,
-        renderRight?: (s: Student) => React.ReactNode,
-        onRowPress?: (s: Student) => void,
-    ) => (
-        <View style={[styles.card, styles.tableCard, { backgroundColor: palette.surface }, shadow]}>
-            <View style={[styles.tableHeader, { borderBottomColor: palette.inputSurface }]}>
-                <Text style={[T.label, styles.colNr, { color: palette.textMuted }]}>NR</Text>
-                <Text style={[T.label, styles.colName, { color: palette.textMuted }]}>UCZEŃ</Text>
-                <Text style={[T.label, { color: palette.textMuted, marginRight: 36 + S[2] }]}>{rightLabel}</Text>
-            </View>
-            {list.map((s, idx) => (
-                <TouchableOpacity
-                    key={s.id}
-                    activeOpacity={onRowPress ? 0.6 : 1}
-                    onPress={onRowPress ? () => onRowPress(s) : undefined}
-                    style={[styles.studentRow, idx < list.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.inputSurface }]}
-                >
-                    <Text style={[T.label, styles.colNr, { color: palette.textMuted }]}>{idx + 1}</Text>
-                    <Text style={[T.bodyMedium, styles.colName, { color: palette.text }]} numberOfLines={1}>{sName(s)}</Text>
-                    <View style={styles.gradeChips}>
-                        {renderRight ? renderRight(s) : null}
-                    </View>
-                    <TouchableOpacity style={[styles.addBtn, { backgroundColor: palette.primary }]} onPress={() => onAdd(s)}>
-                        <Ionicons name="add" size={20} color={palette.onPrimary} />
-                    </TouchableOpacity>
+    // ── flat list config ──────────────────────────────────────────────────────
+    // Determines which list + callbacks the FlatList uses based on current mode.
+    const flatListData: Student[] = mode === "grades" ? students : zachFilteredStudents;
+
+    const flatListOnAdd = (s: Student) => {
+        if (mode === "grades") {
+            setAddingForStudent(s);
+            setModalBase(null);
+            setModalModifier("");
+            setEditingGrade(null);
+        } else if (zachMode === "wpisy") {
+            openBehaviorModal(s);
+        } else {
+            openPeriodicModal(s);
+        }
+    };
+
+    const flatListRightLabel = mode === "grades"
+        ? "OCENY"
+        : zachMode === "wpisy" ? "ZACHOWANIE" : "OCENA OKRS.";
+
+    const renderFlatListRight = (s: Student): React.ReactNode => {
+        if (mode === "grades") {
+            const avg = computeWeightedAverage(studentGrades.get(s.id) ?? []);
+            return avg !== null
+                ? <View style={[styles.gradeChip, { backgroundColor: gradeChipColor(avg) }]}><Text style={styles.gradeChipText}>{avg.toFixed(1)}</Text></View>
+                : <Text style={[T.label, { color: palette.textMuted }]}>—</Text>;
+        }
+        return s.klasa_nazwa ? <Text style={[T.label, { color: palette.textMuted }]}>{s.klasa_nazwa}</Text> : null;
+    };
+
+    const flatListOnRowPress = mode === "grades" ? openDetailSheet : undefined;
+
+    const renderStudentItem = ({ item, index }: { item: Student; index: number }) => (
+        <View style={[styles.studentRowOuter, { backgroundColor: palette.surface }]}>
+            <TouchableOpacity
+                activeOpacity={flatListOnRowPress ? 0.6 : 1}
+                onPress={flatListOnRowPress ? () => flatListOnRowPress(item) : undefined}
+                style={[styles.studentRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.inputSurface }]}
+            >
+                <Text style={[T.label, styles.colNr, { color: palette.textMuted }]}>{index + 1}</Text>
+                <Text style={[T.bodyMedium, styles.colName, { color: palette.text }]} numberOfLines={1}>{sName(item)}</Text>
+                <View style={styles.gradeChips}>
+                    {renderFlatListRight(item)}
+                </View>
+                <TouchableOpacity style={[styles.addBtn, { backgroundColor: palette.primary }]} onPress={() => flatListOnAdd(item)}>
+                    <Ionicons name="add" size={20} color={palette.onPrimary} />
                 </TouchableOpacity>
-            ))}
-            {list.length === 0 && <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>Brak uczniów</Text>}
+            </TouchableOpacity>
+        </View>
+    );
+
+    // ── FlatList header (everything above the student rows) ───────────────────
+    const listHeader = (
+        <>
+            <View style={styles.modeSwitcher}>
+                <SegmentedControl
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                        { key: "grades", label: "Oceny" },
+                        { key: "zachowanie", label: "Zachowanie" },
+                    ]}
+                />
+            </View>
+
+            <View style={styles.bodyPad}>
+                {mode === "grades" ? (
+                    /* ── GRADES MODE filter card ──────────────────────────── */
+                    <>
+                        <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
+                            <Text style={[T.eyebrow, { color: palette.textSoft, marginBottom: S[3] }]}>FILTROWANIE</Text>
+                            {renderPicker(
+                                "Przedmiot", selectedSubject?.nazwa ?? null, "Wybierz przedmiot...",
+                                showSubjectPicker, () => { closeGradePickers(); setShowSubjectPicker((v) => !v); },
+                                <>
+                                    {subjects.map((sub) => (
+                                        <TouchableOpacity key={sub.id} style={[styles.dropdownItem, selectedSubject?.id === sub.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setSelectedSubject(sub); setShowSubjectPicker(false); }}>
+                                            <Text style={[T.body, { color: palette.text }]}>{sub.nazwa}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                    {subjects.length === 0 && <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>Brak przedmiotów</Text>}
+                                </>
+                            )}
+                            <View style={styles.gap} />
+                            {renderPicker(
+                                "Klasa", selectedClass?.nazwa ?? null, "Wybierz klasę...",
+                                showClassPicker, () => { closeGradePickers(); setShowClassPicker((v) => !v); },
+                                <>
+                                    {classes.map((c) => (
+                                        <TouchableOpacity key={c.id} style={[styles.dropdownItem, selectedClass?.id === c.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setSelectedClass(c); setShowClassPicker(false); }}>
+                                            <Text style={[T.body, { color: palette.text }]}>{c.nazwa}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                    {classes.length === 0 && <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>Brak klas</Text>}
+                                </>
+                            )}
+                            <View style={styles.gap} />
+                            <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Waga</Text>
+                            <View style={styles.weightRow}>
+                                {[1, 2, 3, 4, 5].map((w) => (
+                                    <TouchableOpacity key={w} style={[styles.weightChip, { backgroundColor: weight === w ? palette.primary : palette.inputSurface }]} onPress={() => setWeight(w)}>
+                                        <Text style={[T.labelBold, { fontSize: 17, color: weight === w ? palette.onPrimary : palette.text }]}>{w}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <View style={styles.gap} />
+                            <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Opis (opcjonalnie)</Text>
+                            <TextInput value={description} onChangeText={setDescription} placeholder="Np. sprawdzian z rozdziału 3..." placeholderTextColor={palette.textSoft} multiline numberOfLines={2} style={[styles.textInput, styles.textArea, { backgroundColor: palette.inputSurface, color: palette.text }]} />
+                            <View style={styles.gap} />
+                            <View style={styles.toggleRow}>
+                                {([
+                                    { label: "Do śr.", val: czyDoSredniej, set: setCzyDoSredniej },
+                                    { label: "Punktowa", val: czyPunktowa, set: setCzyPunktowa },
+                                    { label: "Opisowa", val: czyOpisowa, set: setCzyOpisowa },
+                                ] as const).map(({ label, val, set }) => (
+                                    <TouchableOpacity key={label} style={[styles.toggleChip, { backgroundColor: val ? palette.primary : palette.inputSurface }]} onPress={() => set((v) => !v)}>
+                                        <Text style={[T.labelBold, { fontSize: 13, color: val ? palette.onPrimary : palette.text }]}>{label}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+                        {selectedClass && selectedSubject && (
+                            <View style={styles.sectionHeader}>
+                                <Text style={[T.eyebrow, { color: palette.textSoft }]}>{selectedClass.nazwa} — {selectedSubject.nazwa.toUpperCase()}</Text>
+                            </View>
+                        )}
+                    </>
+                ) : (
+                    /* ── ZACHOWANIE MODE filter card ──────────────────────── */
+                    <>
+                        <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
+                            <Text style={[T.eyebrow, { color: palette.textSoft, marginBottom: S[3] }]}>FILTROWANIE</Text>
+                            {renderPicker(
+                                "Klasa (opcjonalnie)", zachClass?.nazwa ?? null, "Wszyscy uczniowie",
+                                zachShowClassPicker, () => setZachShowClassPicker((v) => !v),
+                                <>
+                                    <TouchableOpacity style={[styles.dropdownItem, zachClass === null && { backgroundColor: palette.primaryFixed }]} onPress={() => { setZachClass(null); setZachShowClassPicker(false); }}>
+                                        <Text style={[T.body, { color: palette.text }]}>Wszyscy uczniowie</Text>
+                                    </TouchableOpacity>
+                                    {classes.map((c) => (
+                                        <TouchableOpacity key={c.id} style={[styles.dropdownItem, zachClass?.id === c.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setZachClass(c); setZachShowClassPicker(false); }}>
+                                            <Text style={[T.body, { color: palette.text }]}>{c.nazwa}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </>
+                            )}
+                            <View style={styles.gap} />
+                            <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Szukaj ucznia</Text>
+                            <TextInput value={zachStudentSearch} onChangeText={setZachStudentSearch} placeholder="Wpisz imię lub nazwisko..." placeholderTextColor={palette.textSoft} style={[styles.textInput, { backgroundColor: palette.inputSurface, color: palette.text }]} />
+                        </View>
+
+                        <View style={{ marginBottom: S[3] }}>
+                            <SegmentedControl
+                                value={zachMode}
+                                onChange={setZachMode}
+                                options={[
+                                    { key: "wpisy", label: "Punkty" },
+                                    { key: "oceny_okresowe", label: "Oceny okresowe" },
+                                ]}
+                            />
+                        </View>
+
+                        {zachClass && zachFilteredStudents.length > 0 && (
+                            <View style={styles.sectionHeader}>
+                                <Text style={[T.eyebrow, { color: palette.textSoft }]}>{zachClass.nazwa}</Text>
+                            </View>
+                        )}
+                    </>
+                )}
+
+                {/* Table card top (header row) — only shown when there will be rows */}
+                {flatListData.length > 0 && (
+                    <View style={[styles.card, styles.tableCard, { backgroundColor: palette.surface }, shadow, { marginBottom: 0 }]}>
+                        <View style={[styles.tableHeader, { borderBottomColor: palette.inputSurface }]}>
+                            <Text style={[T.label, styles.colNr, { color: palette.textMuted }]}>NR</Text>
+                            <Text style={[T.label, styles.colName, { color: palette.textMuted }]}>UCZEŃ</Text>
+                            <Text style={[T.label, { color: palette.textMuted, marginRight: 36 + S[2] }]}>{flatListRightLabel}</Text>
+                        </View>
+                    </View>
+                )}
+            </View>
+        </>
+    );
+
+    // ── FlatList empty/loading state ──────────────────────────────────────────
+    const listEmpty = (
+        <View style={styles.bodyPad}>
+            {mode === "grades" ? (
+                gradesLoading ? (
+                    <View style={[styles.card, styles.centeredCard, { backgroundColor: palette.surface }, shadow]}>
+                        <Text style={[T.body, { color: palette.textSoft }]}>Ładowanie uczniów i ocen...</Text>
+                    </View>
+                ) : (
+                    <EmptyState title="Wybierz klasę i przedmiot" subtitle="Lista uczniów pojawi się po wybraniu klasy i przedmiotu." icon="people-outline" />
+                )
+            ) : (
+                zachStudentsLoading ? (
+                    <View style={[styles.card, styles.centeredCard, { backgroundColor: palette.surface }, shadow]}>
+                        <Text style={[T.body, { color: palette.textSoft }]}>Ładowanie uczniów...</Text>
+                    </View>
+                ) : (
+                    <EmptyState
+                        title={zachClass ? "Brak uczniów w klasie" : "Wybierz klasę lub wyszukaj ucznia"}
+                        subtitle={zachClass ? "" : "Wpisz minimum 2 znaki aby wyszukać ucznia."}
+                        icon="people-outline"
+                    />
+                )
+            )}
         </View>
     );
 
@@ -496,169 +675,25 @@ export default function TeacherGrades() {
         <>
             <View style={[styles.root, { backgroundColor: palette.background }]}>
             <Header title="Oceny" subtitle="Wystaw ocenę lub dodaj wpis zachowania" />
-            <ScrollView
-                style={{ flex: 1 }}
+            <FlatList
+                data={flatListData}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={renderStudentItem}
+                ListHeaderComponent={listHeader}
+                ListEmptyComponent={listEmpty}
+                ListFooterComponent={
+                    flatListData.length > 0
+                        ? <View style={[styles.tableCardBottom, { backgroundColor: palette.surface }, shadow]} />
+                        : <View style={{ height: S[8] }} />
+                }
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
-            >
-
-                <View style={styles.modeSwitcher}>
-                    <SegmentedControl
-                        value={mode}
-                        onChange={setMode}
-                        options={[
-                            { key: "grades", label: "Oceny" },
-                            { key: "zachowanie", label: "Zachowanie" },
-                        ]}
-                    />
-                </View>
-
-                <View style={styles.body}>
-                    {mode === "grades" ? (
-                        /* ── GRADES MODE ──────────────────────────────────────── */
-                        <>
-                            <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
-                                <Text style={[T.eyebrow, { color: palette.textSoft, marginBottom: S[3] }]}>FILTROWANIE</Text>
-                                {renderPicker(
-                                    "Przedmiot", selectedSubject?.nazwa ?? null, "Wybierz przedmiot...",
-                                    showSubjectPicker, () => { closeGradePickers(); setShowSubjectPicker((v) => !v); },
-                                    <>
-                                        {subjects.map((sub) => (
-                                            <TouchableOpacity key={sub.id} style={[styles.dropdownItem, selectedSubject?.id === sub.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setSelectedSubject(sub); setShowSubjectPicker(false); }}>
-                                                <Text style={[T.body, { color: palette.text }]}>{sub.nazwa}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                        {subjects.length === 0 && <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>Brak przedmiotów</Text>}
-                                    </>
-                                )}
-                                <View style={styles.gap} />
-                                {renderPicker(
-                                    "Klasa", selectedClass?.nazwa ?? null, "Wybierz klasę...",
-                                    showClassPicker, () => { closeGradePickers(); setShowClassPicker((v) => !v); },
-                                    <>
-                                        {classes.map((c) => (
-                                            <TouchableOpacity key={c.id} style={[styles.dropdownItem, selectedClass?.id === c.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setSelectedClass(c); setShowClassPicker(false); }}>
-                                                <Text style={[T.body, { color: palette.text }]}>{c.nazwa}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                        {classes.length === 0 && <Text style={[T.label, styles.emptyMsg, { color: palette.textMuted }]}>Brak klas</Text>}
-                                    </>
-                                )}
-                                <View style={styles.gap} />
-                                <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Waga</Text>
-                                <View style={styles.weightRow}>
-                                    {[1, 2, 3, 4, 5].map((w) => (
-                                        <TouchableOpacity key={w} style={[styles.weightChip, { backgroundColor: weight === w ? palette.primary : palette.inputSurface }]} onPress={() => setWeight(w)}>
-                                            <Text style={[T.labelBold, { fontSize: 17, color: weight === w ? palette.onPrimary : palette.text }]}>{w}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                                <View style={styles.gap} />
-                                <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Opis (opcjonalnie)</Text>
-                                <TextInput value={description} onChangeText={setDescription} placeholder="Np. sprawdzian z rozdziału 3..." placeholderTextColor={palette.textSoft} multiline numberOfLines={2} style={[styles.textInput, styles.textArea, { backgroundColor: palette.inputSurface, color: palette.text }]} />
-                                <View style={styles.gap} />
-                                <View style={styles.toggleRow}>
-                                    {([
-                                        { label: "Do śr.", val: czyDoSredniej, set: setCzyDoSredniej },
-                                        { label: "Punktowa", val: czyPunktowa, set: setCzyPunktowa },
-                                        { label: "Opisowa", val: czyOpisowa, set: setCzyOpisowa },
-                                    ] as const).map(({ label, val, set }) => (
-                                        <TouchableOpacity key={label} style={[styles.toggleChip, { backgroundColor: val ? palette.primary : palette.inputSurface }]} onPress={() => set((v) => !v)}>
-                                            <Text style={[T.labelBold, { fontSize: 13, color: val ? palette.onPrimary : palette.text }]}>{label}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-
-                            {selectedClass && selectedSubject ? (
-                                <>
-                                    <View style={styles.sectionHeader}>
-                                        <Text style={[T.eyebrow, { color: palette.textSoft }]}>{selectedClass.nazwa} — {selectedSubject.nazwa.toUpperCase()}</Text>
-                                    </View>
-                                    {gradesLoading ? (
-                                        <View style={[styles.card, styles.centeredCard, { backgroundColor: palette.surface }, shadow]}>
-                                            <Text style={[T.body, { color: palette.textSoft }]}>Ładowanie uczniów i ocen...</Text>
-                                        </View>
-                                    ) : renderStudentTable(
-                                        students,
-                                        (s) => { setAddingForStudent(s); setModalBase(null); setModalModifier(""); setEditingGrade(null); },
-                                        "OCENY",
-                                        (s) => {
-                                            const avg = computeWeightedAverage(studentGrades.get(s.id) ?? []);
-                                            return avg !== null
-                                                ? <View style={[styles.gradeChip, { backgroundColor: gradeChipColor(avg) }]}><Text style={styles.gradeChipText}>{avg.toFixed(1)}</Text></View>
-                                                : <Text style={[T.label, { color: palette.textMuted }]}>—</Text>;
-                                        },
-                                        openDetailSheet,
-                                    )}
-                                </>
-                            ) : (
-                                <EmptyState title="Wybierz klasę i przedmiot" subtitle="Lista uczniów pojawi się po wybraniu klasy i przedmiotu." icon="people-outline" />
-                            )}
-                        </>
-                    ) : (
-                        /* ── ZACHOWANIE MODE ──────────────────────────────────── */
-                        <>
-                            {/* Filter card */}
-                            <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
-                                <Text style={[T.eyebrow, { color: palette.textSoft, marginBottom: S[3] }]}>FILTROWANIE</Text>
-                                {renderPicker(
-                                    "Klasa (opcjonalnie)", zachClass?.nazwa ?? null, "Wszyscy uczniowie",
-                                    zachShowClassPicker, () => setZachShowClassPicker((v) => !v),
-                                    <>
-                                        <TouchableOpacity style={[styles.dropdownItem, zachClass === null && { backgroundColor: palette.primaryFixed }]} onPress={() => { setZachClass(null); setZachShowClassPicker(false); }}>
-                                            <Text style={[T.body, { color: palette.text }]}>Wszyscy uczniowie</Text>
-                                        </TouchableOpacity>
-                                        {classes.map((c) => (
-                                            <TouchableOpacity key={c.id} style={[styles.dropdownItem, zachClass?.id === c.id && { backgroundColor: palette.primaryFixed }]} onPress={() => { setZachClass(c); setZachShowClassPicker(false); }}>
-                                                <Text style={[T.body, { color: palette.text }]}>{c.nazwa}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </>
-                                )}
-                                <View style={styles.gap} />
-                                <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>Szukaj ucznia</Text>
-                                <TextInput value={zachStudentSearch} onChangeText={setZachStudentSearch} placeholder="Wpisz imię lub nazwisko..." placeholderTextColor={palette.textSoft} style={[styles.textInput, { backgroundColor: palette.inputSurface, color: palette.text }]} />
-                            </View>
-
-                            {/* Segment: Wpisy | Oceny okresowe */}
-                            <View style={{ marginBottom: S[3] }}>
-                                <SegmentedControl
-                                    value={zachMode}
-                                    onChange={setZachMode}
-                                    options={[
-                                        { key: "wpisy", label: "Punkty" },
-                                        { key: "oceny_okresowe", label: "Oceny okresowe" },
-                                    ]}
-                                />
-                            </View>
-
-                            {zachStudentsLoading ? (
-                                <View style={[styles.card, styles.centeredCard, { backgroundColor: palette.surface }, shadow]}>
-                                    <Text style={[T.body, { color: palette.textSoft }]}>Ładowanie uczniów...</Text>
-                                </View>
-                            ) : zachFilteredStudents.length > 0 ? (
-                                <>
-                                    {zachClass && <View style={styles.sectionHeader}><Text style={[T.eyebrow, { color: palette.textSoft }]}>{zachClass.nazwa}</Text></View>}
-                                    {zachMode === "wpisy"
-                                        ? renderStudentTable(zachFilteredStudents, openBehaviorModal, "ZACHOWANIE",
-                                            (s) => s.klasa_nazwa ? <Text style={[T.label, { color: palette.textMuted }]}>{s.klasa_nazwa}</Text> : null)
-                                        : renderStudentTable(zachFilteredStudents, openPeriodicModal, "OCENA OKRS.",
-                                            (s) => s.klasa_nazwa ? <Text style={[T.label, { color: palette.textMuted }]}>{s.klasa_nazwa}</Text> : null)
-                                    }
-                                </>
-                            ) : (
-                                <EmptyState
-                                    title={zachClass ? "Brak uczniów w klasie" : "Wybierz klasę lub wyszukaj ucznia"}
-                                    subtitle={zachClass ? "" : "Wpisz minimum 2 znaki aby wyszukać ucznia."}
-                                    icon="people-outline"
-                                />
-                            )}
-                        </>
-                    )}
-                </View>
-            </ScrollView>
+                initialNumToRender={10}
+                maxToRenderPerBatch={5}
+                style={{ flex: 1 }}
+                contentContainerStyle={flatListData.length === 0 ? undefined : { paddingBottom: S[8] }}
+            />
             </View>
 
             {/* ── Grade entry modal ──────────────────────────────────────────── */}
@@ -947,9 +982,12 @@ const styles = StyleSheet.create({
     root: { flex: 1 },
     modeSwitcher: { paddingHorizontal: S[4], paddingBottom: S[2] },
     body: { paddingHorizontal: S[4], paddingBottom: S[8] },
+    bodyPad: { paddingHorizontal: S[4] },
     sectionHeader: { paddingVertical: S[3] },
     card: { borderRadius: R.lg, padding: S[4], marginBottom: S[4] },
     tableCard: { padding: 0, overflow: "hidden" },
+    tableCardBottom: { marginHorizontal: S[4], marginBottom: S[4], height: S[2], borderBottomLeftRadius: R.lg, borderBottomRightRadius: R.lg },
+    studentRowOuter: { marginHorizontal: S[4] },
     centeredCard: { alignItems: "center", justifyContent: "center", paddingVertical: S[6] },
     fieldLabel: { marginBottom: S[1] },
     selector: { borderRadius: R.md, paddingHorizontal: S[3], paddingVertical: S[3], flexDirection: "row", alignItems: "center" },

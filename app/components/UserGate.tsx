@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { authenticatedFetch, clearTokens, decodeJWT, getAccessToken, getApiBaseUrl, login, register } from '../api/auth';
+import { PROFILE_ENDPOINTS } from '../api/endpointUtils';
 import { calculateWeightedAverage, getUserGrades } from '../api/grades';
 import { getTeacherProfile } from '../api/teacher';
 import { getStudentProfile } from '../api/users';
@@ -138,18 +139,19 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
 
       // after successful auth, fetch the server-side profile.
       // /api/profile/ is tried first because it has an account_type field we use for role detection.
-      let profileJson: any = null;
+      type ProfileJson = {
+        account_type?: string;
+        user?: { account_type?: string; first_name?: string; last_name?: string; [key: string]: unknown };
+        uczen?: { account_type?: string; first_name?: string; last_name?: string; [key: string]: unknown };
+        first_name?: string; last_name?: string; firstName?: string; lastName?: string;
+        given_name?: string; family_name?: string; imie?: string; nazwisko?: string;
+        name?: string; username?: string;
+        [key: string]: unknown;
+      } | null;
+      let profileJson: ProfileJson = null;
       try {
         const base = getApiBaseUrl();
-        const candidates = [
-          "/api/profile/",
-          "/api/auth/user/",
-          "/api/auth/me/",
-          "/api/users/me/",
-          "/api/user/",
-          "/api/uzytkownicy/me/",
-          "/api/uczniowie/me/",
-        ];
+        const candidates = PROFILE_ENDPOINTS;
         try {
           profileJson = await Promise.any(
             candidates.map(async (ep) => {
@@ -172,8 +174,8 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
       if (profileJson && !jwtRole) {
         const accountType: string | undefined =
           profileJson.account_type ??
-          (profileJson.user as any)?.account_type ??
-          (profileJson.uczen as any)?.account_type;
+          profileJson.user?.account_type ??
+          profileJson.uczen?.account_type;
         if (accountType) jwtRole = accountType.toLowerCase();
       }
 
@@ -188,7 +190,7 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const normalizeName = (p: any) => {
+      const normalizeName = (p: ProfileJson) => {
         if (!p) return null;
         const candidate = p.user ?? p.uczen ?? p;
         const first =
@@ -282,7 +284,7 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
           classId: jwtClassId,
           attendance,
           grades,
-        } as any;
+        };
         if (__DEV__) console.debug('[UserGate] setting user from server profile', userObj);
         setUser(userObj);
       } else {
@@ -307,7 +309,7 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
           classId: jwtClassId,
           attendance: { percentage: "", present: 0, late: 0, absent: 0 },
           grades: { average: "", behavior: "" },
-        } as any;
+        };
         setUser(fallbackUser);
 
         // If we managed to get a numeric id from JWT, try to fetch grades immediately so UI updates

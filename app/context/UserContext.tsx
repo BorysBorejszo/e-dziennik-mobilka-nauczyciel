@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { getAccessToken, authenticatedFetch, clearTokens, decodeJWT } from '../api/auth';
+import { PROFILE_ENDPOINTS } from '../api/endpointUtils';
+import { UserProfile } from '../types/api';
 import { getTeacherProfile } from '../api/teacher';
 import { getStudentProfile } from '../api/users';
 
@@ -42,11 +44,13 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
     (async () => {
       try {
         const access = await getAccessToken();
+        if (!mounted) return;
         if (!access) {
-          setReady(true);
+          if (mounted) setReady(true);
           return;
         }
 
@@ -89,16 +93,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
         // try to fetch profile from common endpoints.
         // /api/profile/ is first because it has account_type for role detection.
-        const candidates = [
-          '/api/profile/',
-          '/api/auth/user/',
-          '/api/auth/me/',
-          '/api/users/me/',
-          '/api/user/',
-          '/api/uzytkownicy/me/',
-          '/api/uczniowie/me/',
-        ];
-        type ProfileShape = { user?: Record<string, unknown>; uczen?: Record<string, unknown>; attendance?: UserData['attendance']; grades?: UserData['grades']; id?: unknown; username?: string; [key: string]: unknown };
+        const candidates = PROFILE_ENDPOINTS;
+        type ProfileShape = UserProfile & { attendance?: UserData['attendance']; grades?: UserData['grades'] };
         let profile: ProfileShape | null = null;
         for (const ep of candidates) {
           try {
@@ -112,6 +108,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             continue;
           }
         }
+        if (!mounted) return;
 
         // Build the user object from whatever sources we have. The
         // /api/auth/me-style endpoints don't always exist on this backend,
@@ -135,8 +132,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         if (profile && !jwtRole) {
           const accountType =
             (profile.account_type as string | undefined) ??
-            ((profile.user as any)?.account_type as string | undefined) ??
-            ((profile.uczen as any)?.account_type as string | undefined);
+            (profile.user?.['account_type'] as string | undefined) ??
+            (profile.uczen?.['account_type'] as string | undefined);
           if (accountType) jwtRole = accountType.toLowerCase();
         }
 
@@ -225,13 +222,14 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             attendance: resolvedAttendance,
             grades: resolvedGrades,
           };
-          setUserState(u);
+          if (mounted) setUserState(u);
         }
       } catch {
         // ignore
       }
-      setReady(true);
+      if (mounted) setReady(true);
     })();
+    return () => { mounted = false; };
   }, []);
 
   const setUser = (u: UserData) => {
