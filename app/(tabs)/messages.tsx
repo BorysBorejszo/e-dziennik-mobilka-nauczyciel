@@ -5,6 +5,7 @@ import { getCurrentDjangoUserId, getDjangoIdFromToken } from "../api/auth";
 import { convertToDisplayMessage, getInboxMessages, getSentMessages, Message, updateMessage } from "../api/messages";
 import { findDjangoUserIdByUsername } from "../api/users";
 import { Card, SearchField, SectionHeader, SegmentedControl, StatCard, PrimaryButton, EmptyPlaceholder } from "../components/editorial/MobileBlocks";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { SkeletonCard } from "../components/ui/SkeletonItem";
 import UserGate from "../components/UserGate";
@@ -24,6 +25,7 @@ export default function Messages() {
     const [loading, setLoading] = React.useState(true);
     const [refreshing, setRefreshing] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [reloadKey, setReloadKey] = React.useState(0);
 
     const fetchMessages = React.useCallback(async () => {
         if (!user) return;
@@ -84,7 +86,7 @@ export default function Messages() {
         if (user?.username || user?.id) {
             void fetchMessages();
         }
-    }, [fetchMessages, user?.id, user?.username]);
+    }, [fetchMessages, user?.id, user?.username, reloadKey]);
 
     const filteredMessages = React.useMemo(() => {
         const bySearch = messages.filter(
@@ -118,6 +120,17 @@ export default function Messages() {
         const senderParam = message ? encodeURIComponent(message.sender) : "";
         router.push(`/wiadomosci/${messageId}?sender=${senderParam}`);
     };
+
+    if (!loading && error !== null) {
+        return (
+            <UserGate>
+                <View style={[styles.root, { backgroundColor: palette.background }]}>
+                    <Header title="Wiadomosci" subtitle="Skrzynka odbiorcza" />
+                    <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />
+                </View>
+            </UserGate>
+        );
+    }
 
     return (
         <UserGate>

@@ -34,6 +34,7 @@ import {
     updateGrade,
 } from "../api/teacher";
 import { SegmentedControl } from "../components/editorial/MobileBlocks";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import EmptyState from "../components/ui/EmptyState";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
@@ -97,6 +98,8 @@ export default function TeacherGrades() {
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [_loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
 
     // ── grades filter ─────────────────────────────────────────────────────────
     const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
@@ -236,10 +239,16 @@ export default function TeacherGrades() {
 
     // ── data loading ──────────────────────────────────────────────────────────
     const load = async () => {
-        const [cls, sub] = await Promise.all([getClasses(), getSubjects()]);
-        setClasses(cls.sort((a, b) => (a.nazwa ?? "").localeCompare(b.nazwa ?? "")));
-        setSubjects(sub);
-        setLoading(false);
+        setFetchError(null);
+        try {
+            const [cls, sub] = await Promise.all([getClasses(), getSubjects()]);
+            setClasses(cls.sort((a, b) => (a.nazwa ?? "").localeCompare(b.nazwa ?? "")));
+            setSubjects(sub);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Nie udało się pobrać danych.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const loadStudentGrades = async (classId: number, subjectId: number) => {
@@ -258,7 +267,7 @@ export default function TeacherGrades() {
         }
     };
 
-    useEffect(() => { void load(); }, []);
+    useEffect(() => { void load(); }, [reloadKey]);
 
     useEffect(() => {
         if (!selectedClass || !selectedSubject) { setStudentGrades(new Map()); setStudents([]); return; }
@@ -671,6 +680,15 @@ export default function TeacherGrades() {
     );
 
     // ── render ────────────────────────────────────────────────────────────────
+    if (fetchError !== null) {
+        return (
+            <View style={[styles.root, { backgroundColor: palette.background }]}>
+                <Header title="Oceny" subtitle="Wystaw ocenę lub dodaj wpis zachowania" />
+                <ErrorState message={fetchError} onRetry={() => setReloadKey(k => k + 1)} />
+            </View>
+        );
+    }
+
     return (
         <>
             <View style={[styles.root, { backgroundColor: palette.background }]}>

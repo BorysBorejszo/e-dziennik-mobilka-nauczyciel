@@ -22,6 +22,7 @@ import {
     SchoolClass,
     Student,
 } from "../api/teacher";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
@@ -35,6 +36,8 @@ export default function TeacherAttendance() {
     const [statuses, setStatuses] = useState<AttendanceStatus[]>([]);
     const [lessonHours, setLessonHours] = useState<LessonHour[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
 
     const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
     const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -49,17 +52,22 @@ export default function TeacherAttendance() {
     const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
 
     const load = async () => {
-        const [cls, st, lh] = await Promise.all([
-            getClasses(),
-            getAttendanceStatuses(),
-            getLessonHours(),
-        ]);
-        setClasses(cls);
-        setStatuses(st);
-        setLessonHours(lh);
+        setFetchError(null);
+        try {
+            const [cls, st, lh] = await Promise.all([
+                getClasses(),
+                getAttendanceStatuses(),
+                getLessonHours(),
+            ]);
+            setClasses(cls);
+            setStatuses(st);
+            setLessonHours(lh);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Nie udało się pobrać danych.');
+        }
     };
 
-    useEffect(() => { void load(); }, []);
+    useEffect(() => { void load(); }, [reloadKey]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -163,6 +171,15 @@ export default function TeacherAttendance() {
 
     const savedCount = students.filter(s => savedIds.has(s.id)).length;
     const readyCount = students.filter(s => statusMap[s.id] !== undefined).length;
+
+    if (fetchError !== null) {
+        return (
+            <View style={[styles.root, { backgroundColor: palette.background }]}>
+                <Header title="Frekwencja" subtitle="Wybierz klasę" />
+                <ErrorState message={fetchError} onRetry={() => setReloadKey(k => k + 1)} />
+            </View>
+        );
+    }
 
     return (
         <View style={[styles.root, { backgroundColor: palette.background }]}>

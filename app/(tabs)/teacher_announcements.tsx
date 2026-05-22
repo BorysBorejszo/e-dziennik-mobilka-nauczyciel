@@ -22,6 +22,7 @@ import {
     PrimaryButton,
     SectionHeader,
 } from "../components/editorial/MobileBlocks";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { SkeletonCard } from "../components/ui/SkeletonItem";
 import UserGate from "../components/UserGate";
@@ -37,6 +38,7 @@ export default function TeacherAnnouncements() {
     const [loading, setLoading] = React.useState(true);
     const [refreshing, setRefreshing] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [reloadKey, setReloadKey] = React.useState(0);
 
     const fetchAnnouncements = React.useCallback(async () => {
         setError(null);
@@ -53,7 +55,7 @@ export default function TeacherAnnouncements() {
 
     React.useEffect(() => {
         void fetchAnnouncements();
-    }, [fetchAnnouncements]);
+    }, [fetchAnnouncements, reloadKey]);
 
     const handleDelete = (item: Announcement) => {
         Alert.alert(
@@ -94,6 +96,17 @@ export default function TeacherAnnouncements() {
 
     const zasiegTextColor = (item: Announcement) =>
         item.zasieg === "school" ? palette.infoText : palette.primary;
+
+    if (!loading && error !== null) {
+        return (
+            <UserGate>
+                <View style={[styles.root, { backgroundColor: palette.background }]}>
+                    <Header title="Ogłoszenia" subtitle="Zarządzaj ogłoszeniami i ankietami" />
+                    <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />
+                </View>
+            </UserGate>
+        );
+    }
 
     return (
         <UserGate>

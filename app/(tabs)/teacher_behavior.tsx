@@ -17,6 +17,7 @@ import {
     getStudents,
     Student,
 } from "../api/teacher";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
@@ -31,6 +32,8 @@ export default function TeacherBehavior() {
     const [students, setStudents] = useState<Student[]>([]);
     const [refreshing, setRefreshing] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
 
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [points, setPoints] = useState("");
@@ -40,11 +43,16 @@ export default function TeacherBehavior() {
     const [recentEntries, setRecentEntries] = useState<BehaviorEntry[]>([]);
 
     const load = async () => {
-        const s = await getStudents();
-        setStudents(s);
+        setFetchError(null);
+        try {
+            const s = await getStudents();
+            setStudents(s);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Nie udało się pobrać danych.');
+        }
     };
 
-    useEffect(() => { load(); }, []);
+    useEffect(() => { load(); }, [reloadKey]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -98,6 +106,15 @@ export default function TeacherBehavior() {
 
     const pointsNum = parseInt(points) || 0;
     const pointColor = pointsNum > 0 ? palette.success : pointsNum < 0 ? palette.danger : palette.textSoft;
+
+    if (fetchError !== null) {
+        return (
+            <View style={[styles.root, { backgroundColor: palette.background }]}>
+                <Header title="Zachowanie" subtitle="Dodaj punkty zachowania" />
+                <ErrorState message={fetchError} onRetry={() => setReloadKey(k => k + 1)} />
+            </View>
+        );
+    }
 
     return (
         <View style={[styles.root, { backgroundColor: palette.background }]}>

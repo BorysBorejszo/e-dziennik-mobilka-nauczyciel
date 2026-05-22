@@ -25,6 +25,7 @@ import {
     updateEvent,
     WydarzenieEntry,
 } from "../api/teacher_schedule";
+import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { SegmentedControl } from "../components/editorial/MobileBlocks";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
@@ -72,6 +73,8 @@ export default function TeacherSchedule() {
     const [lessons, setLessons] = useState<TeacherLesson[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
     const [selectedDay, setSelectedDay] = useState(todayDayIndex());
     const [viewMode, setViewMode] = useState<"day" | "week" | "events">("day");
 
@@ -98,9 +101,15 @@ export default function TeacherSchedule() {
 
     // ── load ──────────────────────────────────────────────────────────────────
     const load = async () => {
-        const data = await getTeacherSchedule();
-        setLessons(data);
-        setLoading(false);
+        setFetchError(null);
+        try {
+            const data = await getTeacherSchedule();
+            setLessons(data);
+        } catch (err) {
+            setFetchError(err instanceof Error ? err.message : 'Nie udało się pobrać danych.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const loadPickerData = async () => {
@@ -116,7 +125,7 @@ export default function TeacherSchedule() {
         setEventsLoading(false);
     };
 
-    useEffect(() => { void load(); }, []);
+    useEffect(() => { void load(); }, [reloadKey]);
 
     useEffect(() => {
         if (viewMode === "events") void loadEvents();
@@ -471,6 +480,15 @@ export default function TeacherSchedule() {
     );
 
     // ── render ────────────────────────────────────────────────────────────────
+    if (fetchError !== null) {
+        return (
+            <View style={{ flex: 1, backgroundColor: palette.background }}>
+                <Header title="Plan lekcji" subtitle="Twój tygodniowy plan zajęć" />
+                <ErrorState message={fetchError} onRetry={() => setReloadKey(k => k + 1)} />
+            </View>
+        );
+    }
+
     return (
         <View style={{ flex: 1, backgroundColor: palette.background }}>
             <Header title="Plan lekcji" subtitle="Twój tygodniowy plan zajęć" />
