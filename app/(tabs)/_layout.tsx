@@ -28,7 +28,6 @@ import MessagesPage from "./messages";
 import SettingsPage from "./settings";
 import TeacherAnnouncementsPage from "./teacher_announcements";
 import TeacherAttendancePage from "./teacher_attendance";
-import TeacherBehaviorPage from "./teacher_behavior";
 import TeacherGradesPage from "./teacher_grades";
 import TeacherHomePage from "./teacher_home";
 import TeacherSchedulePage from "./teacher_schedule";
@@ -37,7 +36,7 @@ export default function Layout() {
   const segments = useSegments();
 
   const routes = React.useMemo(() => {
-    return ["teacher_home", "teacher_schedule", "teacher_grades", "teacher_attendance", "teacher_behavior", "messages", "teacher_announcements", "settings"];
+    return ["teacher_home", "teacher_schedule", "teacher_grades", "teacher_attendance", "messages", "teacher_announcements", "settings"];
   }, []);
 
   // determine current active segment (last segment)
@@ -74,9 +73,9 @@ export default function Layout() {
 
   const combinedTranslate = React.useRef(Animated.add(offset, translateX)).current;
 
-  // 8 slots for teacher tabs
+  // 7 slots for teacher tabs
   const pageTranslates = React.useRef(
-    Array.from({ length: 8 }, (_, i) => Animated.add(combinedTranslate, i * screenWidth))
+    Array.from({ length: 7 }, (_, i) => Animated.add(combinedTranslate, i * screenWidth))
   ).current;
 
   const onGestureEvent = Animated.event(
@@ -85,7 +84,7 @@ export default function Layout() {
   );
 
   const tabLevels = React.useMemo(() =>
-    Array.from({ length: 8 }, (_, i) => {
+    Array.from({ length: 7 }, (_, i) => {
       const active = pageTranslates[i].interpolate({
         inputRange: [-screenWidth, 0, screenWidth],
         outputRange: [0, 1, 0],
@@ -177,7 +176,6 @@ export default function Layout() {
     TeacherSchedulePage,
     TeacherGradesPage,
     TeacherAttendancePage,
-    TeacherBehaviorPage,
     MessagesPage,
     TeacherAnnouncementsPage,
     SettingsPage,
