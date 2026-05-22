@@ -37,7 +37,7 @@ function PickerModal({ visible, title, items, selected, onSelect, onClose, palet
       <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose} />
       <View style={[styles.pickerSheet, { backgroundColor: palette.surface }]}>
         <View style={styles.pickerHeader}>
-          <Text style={[T.headingSmall, { color: palette.text }]}>{title}</Text>
+          <Text style={[T.title, { color: palette.text }]}>{title}</Text>
           <TouchableOpacity onPress={onClose}>
             <Ionicons name="close" size={22} color={palette.textSoft} />
           </TouchableOpacity>
@@ -258,7 +258,7 @@ export default function TeacherHomeworkScreen() {
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setFormVisible(false)} />
         <View style={[styles.formSheet, { backgroundColor: palette.surface }]}>
           <View style={styles.formHeader}>
-            <Text style={[T.headingSmall, { color: palette.text }]}>Nowa praca domowa</Text>
+            <Text style={[T.title, { color: palette.text }]}>Nowa praca domowa</Text>
             <TouchableOpacity onPress={() => setFormVisible(false)}>
               <Ionicons name="close" size={22} color={palette.textSoft} />
             </TouchableOpacity>
