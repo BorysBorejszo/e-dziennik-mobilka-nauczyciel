@@ -51,6 +51,7 @@ export type BehaviorEntry = {
   uczen: number;
   punkty: number;
   opis?: string;
+  kategoria?: string;
   nauczyciel_wpisujacy?: number;
   data?: string;
 };

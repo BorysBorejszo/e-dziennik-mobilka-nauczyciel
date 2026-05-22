@@ -38,8 +38,8 @@ export default function TeacherHome({ onNavigate }: Props) {
     const tiles: QuickTile[] = [
         { label: "Plan lekcji", icon: "calendar-outline", color: palette.primary, tab: 1 },
         { label: "Wystaw ocenę", icon: "ribbon-outline", color: palette.success, tab: 2 },
-        { label: "Zachowanie", icon: "star-outline", color: palette.warning, tab: 3 },
-        { label: "Frekwencja", icon: "stats-chart-outline", color: palette.info, tab: 4 },
+        { label: "Zachowanie", icon: "star-outline", color: palette.warning, tab: 4 },
+        { label: "Frekwencja", icon: "stats-chart-outline", color: palette.info, tab: 3 },
         { label: "Wiadomości", icon: "chatbubble-outline", color: "#8b5cf6", tab: 5 },
         { label: "Ogłoszenia", icon: "megaphone-outline", color: "#f97316", tab: 6 },
     ];

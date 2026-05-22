@@ -1,418 +1,339 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { getCurrentDjangoUserId, getDjangoIdFromToken } from "../api/auth";
-import { convertToDisplayMessage, getInboxMessages, getSentMessages, Message, updateMessage } from "../api/messages";
+import { getInboxMessages, getSentMessages, MessageRecord } from "../api/messages";
 import { findDjangoUserIdByUsername } from "../api/users";
-import { Card, SearchField, SectionHeader, SegmentedControl, StatCard, PrimaryButton, EmptyPlaceholder } from "../components/editorial/MobileBlocks";
+import { Card, SectionHeader, PrimaryButton, EmptyPlaceholder } from "../components/editorial/MobileBlocks";
 import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
 import { SkeletonCard } from "../components/ui/SkeletonItem";
 import UserGate from "../components/UserGate";
 import { useUser } from "../context/UserContext";
-import { R, S, T, getEditorialPalette } from "../theme/editorial";
+import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
 
-export default function Messages() {
-    const { user } = useUser();
-    const router = useRouter();
-    const { theme } = useTheme();
-    const palette = getEditorialPalette(theme);
-    const [search, setSearch] = React.useState("");
-    const [messages, setMessages] = React.useState<Message[]>([]);
-    const [tab, setTab] = React.useState<"inbox" | "sent">("inbox");
-    const [readFilter, setReadFilter] = React.useState<"all" | "read" | "unread">("all");
-    const [loading, setLoading] = React.useState(true);
-    const [refreshing, setRefreshing] = React.useState(false);
-    const [error, setError] = React.useState<string | null>(null);
-    const [reloadKey, setReloadKey] = React.useState(0);
+type ConversationItem = {
+  partnerId: number;
+  partnerName: string;
+  lastMessage: MessageRecord;
+  unreadCount: number;
+  isLastFromMe: boolean;
+};
 
-    const fetchMessages = React.useCallback(async () => {
-        if (!user) return;
-        setLoading(true);
-        setError(null);
-
-        try {
-            let attemptsUserId = Number(user.serverId ?? user.id ?? -1);
-
-            try {
-                const tokenId = await getDjangoIdFromToken();
-                if (tokenId) {
-                    attemptsUserId = Number(tokenId);
-                } else {
-                    const resolved = await getCurrentDjangoUserId();
-                    if (resolved) {
-                        attemptsUserId = Number(resolved);
-                    }
-                }
-            } catch (error) {
-                console.warn("[messages] resolving Django user id failed", error);
-            }
-
-            if ((!attemptsUserId || attemptsUserId <= 0) && user.username) {
-                try {
-                    const mapped = await findDjangoUserIdByUsername(user.username);
-                    if (mapped) attemptsUserId = Number(mapped);
-                } catch (error) {
-                    console.warn("[messages] username fallback failed", error);
-                }
-            }
-
-            if (!attemptsUserId || attemptsUserId <= 0) {
-                setMessages([]);
-                return;
-            }
-
-            const items =
-                tab === "inbox"
-                    ? await getInboxMessages(attemptsUserId)
-                    : await getSentMessages(attemptsUserId);
-
-            const displayMessages = items.map((record) =>
-                convertToDisplayMessage(record, attemptsUserId)
-            );
-            setMessages(displayMessages);
-        } catch (error) {
-            console.error("[messages] Failed to fetch messages:", error);
-            setMessages([]);
-            setError("Nie udało się pobrać wiadomości. Sprawdź połączenie i spróbuj ponownie.");
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [tab, user]);
-
-    React.useEffect(() => {
-        if (user?.username || user?.id) {
-            void fetchMessages();
-        }
-    }, [fetchMessages, user?.id, user?.username, reloadKey]);
-
-    const filteredMessages = React.useMemo(() => {
-        const bySearch = messages.filter(
-            (message) =>
-                message.sender.toLowerCase().includes(search.toLowerCase()) ||
-                message.subject.toLowerCase().includes(search.toLowerCase()) ||
-                message.preview.toLowerCase().includes(search.toLowerCase())
-        );
-
-        if (tab !== "inbox") return bySearch;
-        if (readFilter === "read") return bySearch.filter((message) => !message.unread);
-        if (readFilter === "unread") return bySearch.filter((message) => message.unread);
-        return bySearch;
-    }, [messages, readFilter, search, tab]);
-
-    const unreadCount = React.useMemo(
-        () => messages.filter((message) => message.unread).length,
-        [messages]
-    );
-
-    const openMessage = async (messageId: number) => {
-        const message = messages.find((item) => item.id === messageId);
-        if (message && message.unread && message.raw) {
-            await updateMessage(messageId, { przeczytana: true });
-            setMessages((prev) =>
-                prev.map((item) =>
-                    item.id === messageId ? { ...item, unread: false } : item
-                )
-            );
-        }
-        const senderParam = message ? encodeURIComponent(message.sender) : "";
-        router.push(`/wiadomosci/${messageId}?sender=${senderParam}`);
-    };
-
-    if (!loading && error !== null) {
-        return (
-            <UserGate>
-                <View style={[styles.root, { backgroundColor: palette.background }]}>
-                    <Header title="Wiadomosci" subtitle="Skrzynka odbiorcza" />
-                    <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />
-                </View>
-            </UserGate>
-        );
+function groupByConversation(messages: MessageRecord[], myId: number): ConversationItem[] {
+  const map = new Map<number, ConversationItem>();
+  for (const msg of messages) {
+    const isFromMe = msg.nadawca_id === myId;
+    const partnerId = isFromMe ? msg.odbiorca_id : msg.nadawca_id;
+    const partnerName = isFromMe
+      ? (msg.odbiorca_username ?? `Użytkownik ${partnerId}`)
+      : (msg.nadawca_username ?? `Użytkownik ${partnerId}`);
+    const existing = map.get(partnerId);
+    const isNewer = !existing || new Date(msg.data_wyslania) > new Date(existing.lastMessage.data_wyslania);
+    if (!existing) {
+      map.set(partnerId, { partnerId, partnerName, lastMessage: msg, unreadCount: (!isFromMe && !msg.przeczytana) ? 1 : 0, isLastFromMe: isFromMe });
+    } else {
+      if (isNewer) { existing.lastMessage = msg; existing.isLastFromMe = isFromMe; }
+      if (!isFromMe && !msg.przeczytana) existing.unreadCount += 1;
     }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.lastMessage.data_wyslania).getTime() - new Date(a.lastMessage.data_wyslania).getTime()
+  );
+}
 
+function formatTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays === 1) return "Wczoraj";
+  if (diffDays < 7) return `${diffDays} dni temu`;
+  return date.toLocaleDateString("pl-PL");
+}
+
+export default function Messages() {
+  const { user } = useUser();
+  const router = useRouter();
+  const { theme } = useTheme();
+  const palette = getEditorialPalette(theme);
+  const shadow = cardShadow(theme);
+
+  const [conversations, setConversations] = React.useState<ConversationItem[]>([]);
+  const [myId, setMyId] = React.useState<number | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  const fetchConversations = React.useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      let resolvedId = Number(user.serverId ?? user.id ?? -1);
+
+      try {
+        const tokenId = await getDjangoIdFromToken();
+        if (tokenId) {
+          resolvedId = Number(tokenId);
+        } else {
+          const currentId = await getCurrentDjangoUserId();
+          if (currentId) resolvedId = Number(currentId);
+        }
+      } catch {
+        // ignore
+      }
+
+      if ((!resolvedId || resolvedId <= 0) && user.username) {
+        try {
+          const mapped = await findDjangoUserIdByUsername(user.username);
+          if (mapped) resolvedId = Number(mapped);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!resolvedId || resolvedId <= 0) {
+        setConversations([]);
+        setMyId(null);
+        return;
+      }
+
+      setMyId(resolvedId);
+
+      const [inbox, sent] = await Promise.all([
+        getInboxMessages(resolvedId),
+        getSentMessages(resolvedId),
+      ]);
+
+      // Combine and deduplicate by id
+      const seen = new Set<number>();
+      const all: MessageRecord[] = [];
+      for (const msg of [...inbox, ...sent]) {
+        if (!seen.has(msg.id)) {
+          seen.add(msg.id);
+          all.push(msg);
+        }
+      }
+
+      setConversations(groupByConversation(all, resolvedId));
+    } catch {
+      setError("Nie udało się pobrać wiadomości. Sprawdź połączenie i spróbuj ponownie.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user]);
+
+  React.useEffect(() => {
+    if (user?.username || user?.id) {
+      void fetchConversations();
+    }
+  }, [fetchConversations, user?.id, user?.username, reloadKey]);
+
+  const totalUnread = React.useMemo(
+    () => conversations.reduce((sum, c) => sum + c.unreadCount, 0),
+    [conversations]
+  );
+
+  if (!loading && error !== null) {
     return (
-        <UserGate>
-            <View style={[styles.root, { backgroundColor: palette.background }]}>
-                <Header
-                    title="Wiadomosci"
-                    subtitle={
-                        unreadCount > 0
-                            ? `${unreadCount} nieprzeczytanych wiadomosci`
-                            : "Skrzynka odbiorcza"
-                    }
-                />
-                <ScrollView
-                    style={{ flex: 1 }}
-                    contentContainerStyle={styles.content}
-                    showsVerticalScrollIndicator={false}
-                    nestedScrollEnabled
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={refreshing}
-                            onRefresh={() => {
-                                setRefreshing(true);
-                                void fetchMessages();
-                            }}
-                            tintColor={palette.primary}
-                        />
-                    }
-                >
-
-                    <View style={styles.body}>
-                        <View style={styles.statRow}>
-                            <View style={styles.statCell}>
-                                <StatCard
-                                    eyebrow="Nieprzeczytane"
-                                    value={String(unreadCount).padStart(2, "0")}
-                                    caption="Liczba wiadomosci oczekujacych na przeczytanie."
-                                    icon="mail-unread-outline"
-                                    tone="primary"
-                                />
-                            </View>
-                            <View style={styles.statCell}>
-                                <StatCard
-                                    eyebrow={tab === "inbox" ? "Skrzynka" : "Wyslane"}
-                                    value={String(filteredMessages.length).padStart(2, "0")}
-                                    caption="Widok dopasowany do aktywnego filtra i wyszukiwania."
-                                    icon="albums-outline"
-                                    tone="neutral"
-                                />
-                            </View>
-                        </View>
-
-                        <View style={styles.controlRow}>
-                            <SegmentedControl
-                                value={tab}
-                                onChange={setTab}
-                                options={[
-                                    { key: "inbox", label: "Odebrane", count: messages.length },
-                                    { key: "sent", label: "Wyslane", count: messages.length },
-                                ]}
-                            />
-                        </View>
-
-                        {tab === "inbox" ? (
-                            <View style={styles.controlRow}>
-                                <SegmentedControl
-                                    value={readFilter}
-                                    onChange={setReadFilter}
-                                    options={[
-                                        { key: "all", label: "Wszystkie" },
-                                        { key: "unread", label: "Nieodczytane" },
-                                        { key: "read", label: "Odczytane" },
-                                    ]}
-                                />
-                            </View>
-                        ) : null}
-
-                        <View style={styles.controlRow}>
-                            <SearchField
-                                value={search}
-                                onChangeText={setSearch}
-                                placeholder="Szukaj wiadomosci..."
-                            />
-                        </View>
-
-                        <View style={styles.controlRow}>
-                            <PrimaryButton
-                                label="Nowa wiadomosc"
-                                onPress={() => router.push("/wiadomosci/nowa_wiadomosc")}
-                                icon="create-outline"
-                                tone="primary"
-                            />
-                        </View>
-
-                        <View style={styles.listSection}>
-                            <SectionHeader
-                                eyebrow="Skrzynka"
-                                title={tab === "inbox" ? "Odebrane" : "Wyslane"}
-                                meta={String(filteredMessages.length)}
-                            />
-
-                            {loading ? (
-                                <View style={styles.skeletonList}>
-                                    <SkeletonCard />
-                                    <SkeletonCard />
-                                    <SkeletonCard />
-                                </View>
-                            ) : error ? (
-                                <EmptyPlaceholder
-                                    title="Blad pobierania wiadomosci"
-                                    subtitle={error}
-                                    icon="alert-circle-outline"
-                                />
-                            ) : filteredMessages.length === 0 ? (
-                                <EmptyPlaceholder
-                                    title={
-                                        search
-                                            ? "Brak wynikow"
-                                            : tab === "inbox"
-                                              ? "Brak odebranych wiadomosci"
-                                              : "Brak wyslanych wiadomosci"
-                                    }
-                                    subtitle="Nowe rozmowy pojawia sie tutaj po synchronizacji."
-                                    icon="mail-outline"
-                                />
-                            ) : (
-                                <FlatList
-                                    data={filteredMessages}
-                                    keyExtractor={(item) => String(item.id)}
-                                    scrollEnabled={false}
-                                    ItemSeparatorComponent={() => <View style={styles.separator} />}
-                                    renderItem={({ item: message }) => (
-                                        <TouchableOpacity
-                                            onPress={() => void openMessage(message.id)}
-                                            activeOpacity={0.88}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`Wiadomosc od ${message.sender}: ${message.subject}`}
-                                        >
-                                            <Card>
-                                                <View style={styles.messageCard}>
-                                                    <View
-                                                        style={[
-                                                            styles.avatarWrap,
-                                                            {
-                                                                backgroundColor: message.unread
-                                                                    ? palette.primaryFixed
-                                                                    : palette.surfaceMid,
-                                                            },
-                                                        ]}
-                                                    >
-                                                        <Text
-                                                            style={[
-                                                                T.title,
-                                                                {
-                                                                    color: message.unread
-                                                                        ? palette.infoText
-                                                                        : palette.textMuted,
-                                                                },
-                                                            ]}
-                                                        >
-                                                            {message.avatar}
-                                                        </Text>
-                                                    </View>
-
-                                                    <View style={styles.messageBody}>
-                                                        <Text
-                                                            style={[T.bodyMedium, { color: palette.text }]}
-                                                            numberOfLines={1}
-                                                        >
-                                                            {message.sender}
-                                                        </Text>
-                                                        <Text
-                                                            style={[T.label, { color: palette.textMuted, marginTop: 2 }]}
-                                                            numberOfLines={1}
-                                                        >
-                                                            {message.subject}
-                                                        </Text>
-                                                        <Text
-                                                            style={[T.label, { color: palette.textSoft, marginTop: 6 }]}
-                                                            numberOfLines={2}
-                                                        >
-                                                            {message.preview}
-                                                        </Text>
-                                                    </View>
-
-                                                    <View style={styles.messageMeta}>
-                                                        <Text style={[T.meta, { color: palette.textSoft }]}>
-                                                            {message.time}
-                                                        </Text>
-                                                        <View
-                                                            style={[
-                                                                styles.statusPill,
-                                                                {
-                                                                    backgroundColor: message.unread
-                                                                        ? palette.primaryFixed
-                                                                        : palette.surfaceMid,
-                                                                    marginTop: S[2],
-                                                                },
-                                                            ]}
-                                                        >
-                                                            <Text
-                                                                style={[
-                                                                    T.meta,
-                                                                    {
-                                                                        color: message.unread
-                                                                            ? palette.infoText
-                                                                            : palette.textSoft,
-                                                                    },
-                                                                ]}
-                                                            >
-                                                                {message.unread ? "Nowa" : "Odczytana"}
-                                                            </Text>
-                                                        </View>
-                                                    </View>
-                                                </View>
-                                            </Card>
-                                        </TouchableOpacity>
-                                    )}
-                                />
-                            )}
-                        </View>
-                    </View>
-                </ScrollView>
-            </View>
-        </UserGate>
+      <UserGate>
+        <View style={[styles.root, { backgroundColor: palette.background }]}>
+          <Header title="Wiadomości" subtitle="Konwersacje" />
+          <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />
+        </View>
+      </UserGate>
     );
+  }
+
+  return (
+    <UserGate>
+      <View style={[styles.root, { backgroundColor: palette.background }]}>
+        <Header
+          title="Wiadomości"
+          subtitle={totalUnread > 0 ? `${totalUnread} nieprzeczytanych` : "Konwersacje"}
+        />
+
+        <View style={styles.body}>
+          <View style={styles.newBtnRow}>
+            <PrimaryButton
+              label="Nowa wiadomość"
+              onPress={() => router.push("/wiadomosci/nowa_wiadomosc")}
+              icon="create-outline"
+              tone="primary"
+            />
+          </View>
+
+          <SectionHeader
+            eyebrow="Skrzynka"
+            title="Konwersacje"
+            meta={String(conversations.length)}
+          />
+
+          {loading ? (
+            <View style={styles.skeletonList}>
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </View>
+          ) : error ? (
+            <EmptyPlaceholder
+              title="Błąd pobierania wiadomości"
+              subtitle={error}
+              icon="alert-circle-outline"
+            />
+          ) : conversations.length === 0 ? (
+            <EmptyPlaceholder
+              title="Brak konwersacji"
+              subtitle="Nowe rozmowy pojawią się tutaj po synchronizacji."
+              icon="chatbubbles-outline"
+            />
+          ) : (
+            <FlatList
+              data={conversations}
+              keyExtractor={(item) => String(item.partnerId)}
+              scrollEnabled={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => {
+                    setRefreshing(true);
+                    void fetchConversations();
+                  }}
+                  tintColor={palette.primary}
+                />
+              }
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+              renderItem={({ item }) => {
+                const avatarChar = item.partnerName ? item.partnerName[0].toUpperCase() : "?";
+                const preview = item.lastMessage.tresc.slice(0, 80);
+                const timeStr = formatTime(item.lastMessage.data_wyslania);
+                const hasUnread = item.unreadCount > 0;
+
+                return (
+                  <TouchableOpacity
+                    onPress={() =>
+                      router.push(
+                        `/wiadomosci/chat/${item.partnerId}?name=${encodeURIComponent(item.partnerName)}`
+                      )
+                    }
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Konwersacja z ${item.partnerName}`}
+                  >
+                    <Card>
+                      <View style={styles.convRow}>
+                        <View
+                          style={[
+                            styles.avatarWrap,
+                            {
+                              backgroundColor: hasUnread ? palette.primaryFixed : palette.surfaceMid,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              T.title,
+                              { color: hasUnread ? palette.infoText : palette.textMuted },
+                            ]}
+                          >
+                            {avatarChar}
+                          </Text>
+                        </View>
+
+                        <View style={styles.convBody}>
+                          <Text style={[T.bodyMedium, { color: palette.text }]} numberOfLines={1}>
+                            {item.partnerName}
+                          </Text>
+                          <Text
+                            style={[T.label, { color: palette.textSoft, marginTop: 2 }]}
+                            numberOfLines={2}
+                          >
+                            {item.isLastFromMe ? "Ty: " : ""}{preview}
+                          </Text>
+                        </View>
+
+                        <View style={styles.convMeta}>
+                          <Text style={[T.meta, { color: palette.textSoft }]}>{timeStr}</Text>
+                          {hasUnread ? (
+                            <View
+                              style={[
+                                styles.unreadBadge,
+                                { backgroundColor: palette.primary },
+                              ]}
+                            >
+                              <Text style={[T.meta, { color: palette.onPrimary, fontWeight: "700" }]}>
+                                {item.unreadCount}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                    </Card>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </UserGate>
+  );
 }
 
 const styles = StyleSheet.create({
-    root: {
-        flex: 1,
-    },
-    content: {
-        paddingBottom: 120,
-    },
-    body: {
-        paddingHorizontal: S[4],
-        paddingTop: S[2],
-    },
-    statRow: {
-        flexDirection: "row",
-        gap: S[3],
-    },
-    statCell: {
-        flex: 1,
-    },
-    controlRow: {
-        marginTop: S[3],
-    },
-    listSection: {
-        marginTop: S[6],
-    },
-    skeletonList: {
-        gap: S[3],
-    },
-    separator: {
-        height: S[3],
-    },
-    messageCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: S[4],
-        paddingVertical: S[4],
-    },
-    avatarWrap: {
-        width: 52,
-        height: 52,
-        borderRadius: R.lg,
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: S[3],
-        flexShrink: 0,
-    },
-    messageBody: {
-        flex: 1,
-        paddingRight: S[3],
-    },
-    messageMeta: {
-        alignItems: "flex-end",
-    },
-    statusPill: {
-        borderRadius: R.full,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-    },
+  root: {
+    flex: 1,
+  },
+  body: {
+    flex: 1,
+    paddingHorizontal: S[4],
+    paddingTop: S[2],
+    paddingBottom: 120,
+  },
+  newBtnRow: {
+    marginBottom: S[4],
+  },
+  skeletonList: {
+    gap: S[3],
+  },
+  separator: {
+    height: S[3],
+  },
+  convRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: S[4],
+    paddingVertical: S[4],
+  },
+  avatarWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: R.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: S[3],
+    flexShrink: 0,
+  },
+  convBody: {
+    flex: 1,
+    paddingRight: S[3],
+  },
+  convMeta: {
+    alignItems: "flex-end",
+    gap: S[1],
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: R.full,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: S[1],
+  },
 });

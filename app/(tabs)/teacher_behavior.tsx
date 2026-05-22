@@ -23,6 +23,7 @@ import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
 
 const QUICK_POINTS = [-5, -3, -1, 1, 3, 5];
+const CATEGORIES = ['aktywnosc', 'kultura', 'frekwencja', 'pomoc', 'reprezentacja', 'inne'];
 
 export default function TeacherBehavior() {
     const { theme } = useTheme();
@@ -38,6 +39,7 @@ export default function TeacherBehavior() {
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [points, setPoints] = useState("");
     const [description, setDescription] = useState("");
+    const [kategoria, setKategoria] = useState<string>("");
     const [studentSearch, setStudentSearch] = useState("");
     const [showStudentPicker, setShowStudentPicker] = useState(false);
     const [recentEntries, setRecentEntries] = useState<BehaviorEntry[]>([]);
@@ -80,13 +82,15 @@ export default function TeacherBehavior() {
         const numPoints = parseInt(points);
         if (!selectedStudent) { Alert.alert("Błąd", "Wybierz ucznia"); return; }
         if (!points || isNaN(numPoints)) { Alert.alert("Błąd", "Podaj liczbę punktów"); return; }
-        if (!description.trim()) { Alert.alert("Błąd", "Podaj opis wpisu"); return; }
+        if (!kategoria) { Alert.alert("Błąd", "Wybierz kategorię"); return; }
+        if (kategoria === "inne" && !description.trim()) { Alert.alert("Błąd", "Podaj opis dla kategorii 'Inne'"); return; }
 
         setSubmitting(true);
         const ok = await addBehaviorPoints({
             uczen: selectedStudent.id,
             punkty: numPoints,
             opis: description,
+            kategoria,
         });
         setSubmitting(false);
 
@@ -97,6 +101,7 @@ export default function TeacherBehavior() {
             );
             setPoints("");
             setDescription("");
+            setKategoria("");
             const entries = await getBehaviorForStudent(selectedStudent.id);
             setRecentEntries(entries.slice(0, 10));
         } else {
@@ -239,6 +244,35 @@ export default function TeacherBehavior() {
 
                     <View style={styles.gap} />
 
+                    {/* Category chips */}
+                    <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>
+                        Kategoria
+                    </Text>
+                    <View style={styles.quickRow}>
+                        {CATEGORIES.map(cat => {
+                            const active = kategoria === cat;
+                            return (
+                                <TouchableOpacity
+                                    key={cat}
+                                    onPress={() => setKategoria(cat)}
+                                    style={[
+                                        styles.quickChip,
+                                        { backgroundColor: active ? palette.primary : palette.inputSurface },
+                                    ]}
+                                >
+                                    <Text style={[
+                                        T.labelBold,
+                                        { fontSize: 13, color: active ? palette.onPrimary : palette.textSoft },
+                                    ]}>
+                                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+
+                    <View style={styles.gap} />
+
                     {/* Description */}
                     <Text style={[T.labelBold, styles.fieldLabel, { color: palette.textSoft }]}>
                         Opis wpisu
@@ -296,6 +330,13 @@ export default function TeacherBehavior() {
                                         <Text style={[T.bodyMedium, { color: palette.text }]} numberOfLines={2}>
                                             {e.opis ?? "—"}
                                         </Text>
+                                        {e.kategoria ? (
+                                            <View style={[styles.kategoriaBadge, { backgroundColor: palette.surfaceMid }]}>
+                                                <Text style={[T.meta, { color: palette.textMuted }]}>
+                                                    {e.kategoria}
+                                                </Text>
+                                            </View>
+                                        ) : null}
                                         {e.data ? (
                                             <Text style={[T.label, { color: palette.textMuted, marginTop: 2 }]}>
                                                 {e.data}
@@ -416,5 +457,12 @@ const styles = StyleSheet.create({
     },
     entryContent: {
         flex: 1,
+    },
+    kategoriaBadge: {
+        alignSelf: "flex-start",
+        borderRadius: R.full,
+        paddingHorizontal: S[2],
+        paddingVertical: 2,
+        marginTop: 4,
     },
 });
