@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useRef, useState } from "react";
+import DatePickerField from "../components/ui/DatePickerField";
 import {
     Alert,
     Animated,
@@ -121,6 +122,7 @@ export default function TeacherGrades() {
     const [modalModifier, setModalModifier] = useState<"" | "+" | "-">("");
     const [gradeSubmitting, setGradeSubmitting] = useState(false);
     const [editingGrade, setEditingGrade] = useState<GradeEntry | null>(null);
+    const [gradeDate, setGradeDate] = useState(() => new Date().toISOString().split('T')[0]);
 
     // ── grade detail sheet ────────────────────────────────────────────────────
     const [detailStudent, setDetailStudent] = useState<Student | null>(null);
@@ -386,6 +388,7 @@ export default function TeacherGrades() {
                 waga: weight,
                 opis: description || undefined,
                 czy_do_sredniej: czyDoSredniej,
+                data_wystawienia: gradeDate,
             });
         setGradeSubmitting(false);
         if (ok) {
@@ -750,6 +753,12 @@ export default function TeacherGrades() {
                                 );
                             })}
                         </View>
+                        <View style={styles.gap} />
+                        <DatePickerField
+                            value={gradeDate}
+                            onChange={setGradeDate}
+                            label="Data wystawienia"
+                        />
                         <View style={styles.gap} />
                         <View style={styles.modalButtons}>
                             <TouchableOpacity style={[styles.modalBtn, { backgroundColor: palette.inputSurface }]} onPress={() => { setAddingForStudent(null); setEditingGrade(null); }}>

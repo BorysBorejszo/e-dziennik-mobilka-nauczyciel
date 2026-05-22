@@ -185,7 +185,7 @@ export default function Layout() {
     <SidebarProvider>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: bg }}>
         <SafeView edges={['top']} style={{ flex: 1, backgroundColor: bg }}>
-          <AppSidebar />
+          <AppSidebar onNavigate={navigateToIndex} />
 
           <View style={{ flex: 1 }}>
             <PanGestureHandler

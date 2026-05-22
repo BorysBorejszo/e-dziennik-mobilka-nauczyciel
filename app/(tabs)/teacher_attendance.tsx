@@ -7,7 +7,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -24,6 +23,7 @@ import {
 } from "../api/teacher";
 import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
+import DatePickerField from "../components/ui/DatePickerField";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -68,6 +68,11 @@ export default function TeacherAttendance() {
     };
 
     useEffect(() => { void load(); }, [reloadKey]);
+
+    useEffect(() => {
+        setStatusMap({});
+        setSavedIds(new Set());
+    }, [selectedHour?.id]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -232,15 +237,12 @@ export default function TeacherAttendance() {
                     <Text style={[T.eyebrow, styles.sectionLabel, { color: palette.textSoft }]}>
                         DATA
                     </Text>
-                    <View style={[styles.card, { backgroundColor: palette.surface }, shadow]}>
-                        <TextInput
-                            value={date}
-                            onChangeText={setDate}
-                            placeholder="RRRR-MM-DD"
-                            placeholderTextColor={palette.textSoft}
-                            style={[T.body, styles.dateInput, { color: palette.text }]}
-                        />
-                    </View>
+                    <DatePickerField
+                        value={date}
+                        onChange={setDate}
+                        label="Data"
+                        required
+                    />
 
                     {lessonHours.length > 0 && (
                         <>
@@ -459,10 +461,6 @@ const styles = StyleSheet.create({
         borderRadius: R.lg,
         paddingHorizontal: S[4],
         paddingVertical: S[3],
-    },
-    dateInput: {
-        padding: 0,
-        margin: 0,
     },
     hourScroll: {
         marginBottom: S[2],

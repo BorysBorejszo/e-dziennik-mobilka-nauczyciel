@@ -19,6 +19,7 @@ import {
 } from "../api/teacher";
 import ErrorState from "../components/ErrorState";
 import Header from "../components/Header";
+import DatePickerField from "../components/ui/DatePickerField";
 import { R, S, T, cardShadow, getEditorialPalette } from "../theme/editorial";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -40,6 +41,7 @@ export default function TeacherBehavior() {
     const [points, setPoints] = useState("");
     const [description, setDescription] = useState("");
     const [kategoria, setKategoria] = useState<string>("");
+    const [behaviorDate, setBehaviorDate] = useState(() => new Date().toISOString().split('T')[0]);
     const [studentSearch, setStudentSearch] = useState("");
     const [showStudentPicker, setShowStudentPicker] = useState(false);
     const [recentEntries, setRecentEntries] = useState<BehaviorEntry[]>([]);
@@ -91,6 +93,7 @@ export default function TeacherBehavior() {
             punkty: numPoints,
             opis: description,
             kategoria,
+            data: behaviorDate,
         });
         setSubmitting(false);
 
@@ -102,6 +105,7 @@ export default function TeacherBehavior() {
             setPoints("");
             setDescription("");
             setKategoria("");
+            setBehaviorDate(new Date().toISOString().split('T')[0]);
             const entries = await getBehaviorForStudent(selectedStudent.id);
             setRecentEntries(entries.slice(0, 10));
         } else {
@@ -285,6 +289,13 @@ export default function TeacherBehavior() {
                         multiline
                         numberOfLines={3}
                         style={[styles.textInput, styles.textArea, { backgroundColor: palette.inputSurface, color: palette.text }]}
+                    />
+
+                    <View style={styles.gap} />
+                    <DatePickerField
+                        value={behaviorDate}
+                        onChange={setBehaviorDate}
+                        label="Data wpisu"
                     />
 
                     <View style={styles.gapLg} />

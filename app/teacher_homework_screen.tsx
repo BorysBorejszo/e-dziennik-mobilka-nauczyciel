@@ -17,6 +17,7 @@ import { createHomework, deleteHomework, getHomeworkForClass, HomeworkItem } fro
 import { getClasses, getSubjects, SchoolClass, Subject } from "./api/teacher";
 import Header from "./components/Header";
 import SafeView from "./components/SafeView";
+import DatePickerField from "./components/ui/DatePickerField";
 import { R, S, T, cardShadow, getEditorialPalette } from "./theme/editorial";
 import { useTheme } from "./theme/ThemeContext";
 
@@ -118,10 +119,6 @@ export default function TeacherHomeworkScreen() {
   const handleSave = async () => {
     if (!tytul.trim()) {
       Alert.alert("Błąd", "Tytuł jest wymagany.");
-      return;
-    }
-    if (termin && !/^\d{4}-\d{2}-\d{2}$/.test(termin)) {
-      Alert.alert("Błąd", "Podaj termin w formacie RRRR-MM-DD.");
       return;
     }
     setSaving(true);
@@ -292,15 +289,13 @@ export default function TeacherHomeworkScreen() {
               />
 
               {/* Termin */}
-              <Text style={[T.labelBold, { color: palette.textSoft, marginBottom: S[1], marginTop: S[3] }]}>Termin</Text>
-              <TextInput
-                value={termin}
-                onChangeText={setTermin}
-                placeholder="RRRR-MM-DD"
-                placeholderTextColor={palette.textMuted}
-                keyboardType="numeric"
-                style={[styles.input, { backgroundColor: palette.background, borderColor: palette.outline, color: palette.text }]}
-              />
+              <View style={{ marginTop: S[3] }}>
+                <DatePickerField
+                  value={termin || undefined}
+                  onChange={setTermin}
+                  label="Termin oddania"
+                />
+              </View>
 
               {/* Klasa */}
               <Text style={[T.labelBold, { color: palette.textSoft, marginBottom: S[1], marginTop: S[3] }]}>Klasa</Text>
