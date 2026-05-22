@@ -6,7 +6,7 @@ import { PROFILE_ENDPOINTS } from '../api/endpointUtils';
 import { calculateWeightedAverage, getUserGrades } from '../api/grades';
 import { getTeacherProfile } from '../api/teacher';
 import { getStudentProfile } from '../api/users';
-import { useUser } from '../context/UserContext';
+import { UserData, useUser } from '../context/UserContext';
 import { useTheme } from '../theme/ThemeContext';
 import PasswordInput from './ui/PasswordInput';
 
@@ -134,7 +134,7 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
           jwtRole = payload.role;
           jwtUczenIdRaw = payload.uczen_id as number | undefined;
           jwtUserIdRaw = payload.user_id as number | undefined;
-          jwtUczenId = payload.uczen_id ?? payload.user_id ?? payload.id ?? payload.sub;
+          jwtUczenId = payload.uczen_id ?? payload.user_id ?? (payload.id as number | undefined) ?? (payload.sub as number | undefined);
           jwtClassId = payload.klasa_id as number | undefined;
           jwtNauczycielId = payload.nauczyciel_id as number | undefined;
           // infer teacher role from JWT when role field is absent but nauczyciel_id is present
@@ -217,23 +217,25 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const normalizeName = (p: ProfileJson) => {
+      const normalizeName = (p: ProfileJson): string | null => {
         if (!p) return null;
         const candidate = p.user ?? p.uczen ?? p;
-        const first =
+        const first = (
           candidate.first_name ??
           candidate.firstName ??
           candidate.given_name ??
           candidate.imie ??
-          null;
-        const last =
+          null
+        ) as string | null;
+        const last = (
           candidate.last_name ??
           candidate.lastName ??
           candidate.family_name ??
           candidate.nazwisko ??
-          null;
+          null
+        ) as string | null;
         if (first || last) return `${first ?? ""} ${last ?? ""}`.trim();
-        return candidate.name ?? candidate.username ?? null;
+        return ((candidate.name ?? candidate.username) as string | undefined) ?? null;
       };
 
       // Helper: resolve a real first/last name from /api/uczniowie/{id}/ when
@@ -276,16 +278,15 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
         // For teachers/parents (no uczen_id), fall back to user_id from JWT.
         const id = jwtUczenIdRaw ?? profileId ?? jwtUserIdRaw;
         let name = normalizeName(profileJson);
-        const profileUsername =
-          candidate.username ?? candidate.userName ?? loggedUsername;
-        const attendance = profileJson.attendance ??
+        const profileUsername = (candidate.username ?? candidate.userName ?? loggedUsername) as string;
+        const attendance = (profileJson.attendance ??
           profileJson.presence ?? {
             percentage: "",
             present: 0,
             late: 0,
             absent: 0,
-          };
-        const grades = profileJson.grades ?? { average: "", behavior: "" };
+          }) as UserData['attendance'];
+        const grades = (profileJson.grades ?? { average: "", behavior: "" }) as UserData['grades'];
 
         // If /me didn't include the name fields, try role-appropriate profile endpoint.
         if (!name || name === "Użytkownik") {
@@ -346,7 +347,7 @@ export default function UserGate({ children }: { children: React.ReactNode }) {
             const all = gradesRes.subjects.flatMap((s) => s.grades);
             const avg = calculateWeightedAverage(all);
             // update the user we just set with fetched grades
-            setUser({ ...fallbackUser, grades: { average: avg ?? '', behavior: gradesRes.behavior ? '' : (fallbackUser?.grades?.behavior ?? '') } });
+            setUser({ ...fallbackUser, grades: { average: avg?.toString() ?? '', behavior: gradesRes.behavior ? '' : (fallbackUser?.grades?.behavior ?? '') } });
           } catch {
             // ignore grade fetch errors
           }
