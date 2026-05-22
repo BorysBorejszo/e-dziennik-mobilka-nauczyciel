@@ -54,14 +54,6 @@ export default function TeacherHome({ onNavigate }: Props) {
             >
 
             <View style={styles.body}>
-                {/* Role badge */}
-                <View style={[styles.roleBadge, { backgroundColor: palette.primaryFixed }]}>
-                    <Ionicons name="school-outline" size={14} color={palette.primary} />
-                    <Text style={[T.labelBold, styles.roleBadgeText, { color: palette.primary }]}>
-                        Nauczyciel
-                    </Text>
-                </View>
-
                 {/* Quick access section */}
                 <Text style={[T.title, styles.sectionTitle, { color: palette.text }]}>
                     Szybki dostęp
@@ -123,19 +115,6 @@ const styles = StyleSheet.create({
     body: {
         paddingHorizontal: S[4],
         paddingTop: S[2],
-    },
-    roleBadge: {
-        alignSelf: "flex-start",
-        flexDirection: "row",
-        alignItems: "center",
-        borderRadius: R.full,
-        paddingHorizontal: S[3],
-        paddingVertical: S[1] + 2,
-        gap: S[1] + 2,
-        marginBottom: S[6],
-    },
-    roleBadgeText: {
-        letterSpacing: 0.2,
     },
     sectionTitle: {
         marginBottom: S[3],
