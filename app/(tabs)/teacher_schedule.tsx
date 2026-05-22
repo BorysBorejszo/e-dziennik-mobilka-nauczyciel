@@ -483,7 +483,7 @@ export default function TeacherSchedule() {
     if (fetchError !== null) {
         return (
             <View style={{ flex: 1, backgroundColor: palette.background }}>
-                <Header title="Plan lekcji" subtitle="Twój tygodniowy plan zajęć" />
+                <Header title="Plan lekcji" />
                 <ErrorState message={fetchError} onRetry={() => setReloadKey(k => k + 1)} />
             </View>
         );
@@ -491,7 +491,7 @@ export default function TeacherSchedule() {
 
     return (
         <View style={{ flex: 1, backgroundColor: palette.background }}>
-            <Header title="Plan lekcji" subtitle="Twój tygodniowy plan zajęć" />
+            <Header title="Plan lekcji" />
             <ScrollView
                 style={{ flex: 1 }}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -546,10 +546,6 @@ export default function TeacherSchedule() {
                         ) : renderWeekView()
                     ) : (
                         <>
-                            <View style={styles.sectionHeader}>
-                                <Text style={[T.eyebrow, { color: palette.textSoft }]}>{DAY_FULL[selectedDay].toUpperCase()}</Text>
-                            </View>
-
                             {loading ? (
                                 <View style={[styles.emptyCard, { backgroundColor: palette.surface }, shadow]}>
                                     <Text style={[T.body, { color: palette.textSoft }]}>Ładowanie planu...</Text>

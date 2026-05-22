@@ -66,6 +66,7 @@ export default function Messages() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [showAll, setShowAll] = React.useState(false);
 
   const fetchConversations = React.useCallback(async () => {
     if (!user) return;
@@ -139,6 +140,11 @@ export default function Messages() {
     [conversations]
   );
 
+  const displayConversations = React.useMemo(
+    () => showAll ? conversations : conversations.filter((c) => c.unreadCount > 0),
+    [conversations, showAll]
+  );
+
   if (!loading && error !== null) {
     return (
       <UserGate>
@@ -171,8 +177,17 @@ export default function Messages() {
           <SectionHeader
             eyebrow="Skrzynka"
             title="Konwersacje"
-            meta={String(conversations.length)}
+            meta={String(displayConversations.length)}
           />
+
+          <TouchableOpacity
+            onPress={() => setShowAll((v) => !v)}
+            style={[styles.toggleBtn, { backgroundColor: showAll ? palette.surfaceMid : palette.primaryFixed }]}
+          >
+            <Text style={[T.label, { color: showAll ? palette.textSoft : palette.primary, fontWeight: "600" }]}>
+              {showAll ? "Tylko nieprzeczytane" : "Pokaż wszystkie"}
+            </Text>
+          </TouchableOpacity>
 
           {loading ? (
             <View style={styles.skeletonList}>
@@ -186,15 +201,15 @@ export default function Messages() {
               subtitle={error}
               icon="alert-circle-outline"
             />
-          ) : conversations.length === 0 ? (
+          ) : displayConversations.length === 0 ? (
             <EmptyPlaceholder
-              title="Brak konwersacji"
-              subtitle="Nowe rozmowy pojawią się tutaj po synchronizacji."
+              title={showAll ? "Brak konwersacji" : "Brak nowych wiadomości"}
+              subtitle={showAll ? "Nowe rozmowy pojawią się tutaj po synchronizacji." : "Wszystkie wiadomości zostały przeczytane."}
               icon="chatbubbles-outline"
             />
           ) : (
             <FlatList
-              data={conversations}
+              data={displayConversations}
               keyExtractor={(item) => String(item.partnerId)}
               scrollEnabled={false}
               refreshControl={
@@ -335,5 +350,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: S[1],
+  },
+  toggleBtn: {
+    alignSelf: "flex-end",
+    borderRadius: R.full,
+    paddingHorizontal: S[4],
+    paddingVertical: S[2],
+    marginBottom: S[3],
   },
 });
