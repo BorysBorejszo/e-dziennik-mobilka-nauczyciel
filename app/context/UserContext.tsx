@@ -53,10 +53,14 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
     const timeoutId = setTimeout(() => {
       if (mounted) {
-        setError('Nie można załadować profilu. Sprawdź połączenie z internetem.');
-        if (mounted) setReady(true);
+        // Only show error when user is still null — if already resolved, silently become ready
+        setReady(true);
+        setUserState(prev => {
+          if (!prev) setError('Nie można załadować profilu. Sprawdź połączenie z internetem.');
+          return prev;
+        });
       }
-    }, 15_000);
+    }, 30_000);
 
     (async () => {
       try {
@@ -104,22 +108,22 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             if (__DEV__) console.log('[UserContext] ⚠️ IMPORTANT: uczen_id from JWT may NOT be Django user.id!');
         }
 
-        // try to fetch profile from common endpoints.
-        // /api/profile/ is first because it has account_type for role detection.
+        // try to fetch profile from common endpoints in parallel — first to succeed wins.
         const candidates = PROFILE_ENDPOINTS;
         type ProfileShape = UserProfile & { attendance?: UserData['attendance']; grades?: UserData['grades'] };
         let profile: ProfileShape | null = null;
-        for (const ep of candidates) {
-          try {
-            const res = await authenticatedFetch(ep);
-            if (!res || !res.ok) continue;
-            const json = await res.json().catch(() => null);
-            if (!json) continue;
-            profile = json;
-            break;
-          } catch {
-            continue;
-          }
+        try {
+          profile = await Promise.any(
+            candidates.map(async (ep) => {
+              const res = await authenticatedFetch(ep);
+              if (!res || !res.ok) throw new Error('not ok');
+              const json = await res.json().catch(() => null);
+              if (!json) throw new Error('no json');
+              return json as ProfileShape;
+            })
+          );
+        } catch {
+          // all endpoints failed — profile stays null
         }
         if (!mounted) return;
 
@@ -235,7 +239,10 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             attendance: resolvedAttendance,
             grades: resolvedGrades,
           };
-          if (mounted) setUserState(u);
+          if (mounted) {
+            setUserState(u);
+            setError(null);
+          }
         }
       } catch {
         // ignore
@@ -250,6 +257,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
   const setUser = (u: UserData) => {
     setUserState(u);
+    setError(null);
   };
 
   const retryInit = () => {

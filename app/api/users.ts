@@ -29,34 +29,68 @@ const headers = () => ({
 // Cache for username -> Django user.id mapping
 let userMappingCache: Map<string, number> | null = null;
 
-// Build mapping from messages in database
+// Build mapping from messages + nauczyciele/uczniowie endpoints
 export const buildUserMapping = async (): Promise<Map<string, number>> => {
-  if (__DEV__) console.log('[users] Building username -> Django user.id mapping from messages...');
-  
+  if (__DEV__) console.log('[users] Building username -> Django user.id mapping...');
+
+  const mapping = new Map<string, number>();
+
+  // Primary: /api/nauczyciele/ — has user_id = Django auth User pk
+  try {
+    const res = await authenticatedFetch(`${getApiBaseUrl()}/api/nauczyciele/`, { headers: headers() });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const list: any[] = Array.isArray(data) ? data : (data?.results ?? []);
+      for (const t of list) {
+        const username = t.user?.username ?? t.username;
+        const djangoId = t.user?.id ?? t.user_id;
+        if (username && djangoId) {
+          mapping.set(String(username).toLowerCase(), Number(djangoId));
+        }
+      }
+    }
+  } catch {
+    // ignore, fall through to messages
+  }
+
+  // Secondary: uczniowie — user.id is Django auth User pk
+  try {
+    const res = await authenticatedFetch(`${getApiBaseUrl()}/api/uczniowie/`, { headers: headers() });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const list: any[] = Array.isArray(data) ? data : (data?.results ?? []);
+      for (const u of list) {
+        const username = u.user?.username ?? u.username;
+        const djangoId = u.user?.id ?? u.user_id;
+        if (username && djangoId) {
+          mapping.set(String(username).toLowerCase(), Number(djangoId));
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Fallback: extract from existing messages (covers users not in above lists)
   try {
     const allMessages = await getAllMessages();
-    const mapping = new Map<string, number>();
-    
-    allMessages.forEach((msg: any) => {
-      // Add sender mapping
+    for (const msg of allMessages as any[]) {
       if (msg.nadawca_username && msg.nadawca_id) {
         mapping.set(String(msg.nadawca_username).toLowerCase(), msg.nadawca_id);
       }
-      // Add recipient mapping
       if (msg.odbiorca_username && msg.odbiorca_id) {
         mapping.set(String(msg.odbiorca_username).toLowerCase(), msg.odbiorca_id);
       }
-    });
-    
-    if (__DEV__) console.log('[users] Built mapping for', mapping.size, 'users');
-    if (__DEV__) console.log('[users] Sample mappings:', Array.from(mapping.entries()).slice(0, 5));
-    
-    userMappingCache = mapping;
-    return mapping;
-  } catch (error) {
-    console.error('[users] buildUserMapping error:', error);
-    return new Map();
+    }
+  } catch {
+    // ignore
   }
+
+  if (__DEV__) console.log('[users] Built mapping for', mapping.size, 'users');
+  if (__DEV__) console.log('[users] Sample mappings:', Array.from(mapping.entries()).slice(0, 5));
+
+  userMappingCache = mapping;
+  return mapping;
 };
 
 // Find Django user.id by username

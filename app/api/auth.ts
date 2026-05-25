@@ -89,8 +89,12 @@ if (typeof global.atob === "undefined") {
 }
 
 let BASE_URL = API_BASE_URL;
-const ACCESS_KEY = '@e-dziennik:access';
-const REFRESH_KEY = '@e-dziennik:refresh';
+const ACCESS_KEY = 'e-dziennik_access';
+const REFRESH_KEY = 'e-dziennik_refresh';
+
+// In-memory fallback — used when SecureStore is unavailable (e.g. emulator quirks)
+let _memAccess: string | null = null;
+let _memRefresh: string | null = null;
 
 export const setApiBaseUrl = (url: string) => {
   // Remove trailing slash for consistency
@@ -193,6 +197,8 @@ export const register = async (
 };
 
 export const storeTokens = async (access: string, refresh: string) => {
+  _memAccess = access;
+  _memRefresh = refresh;
   try {
     await Promise.all([
       SecureStore.setItemAsync(ACCESS_KEY, access),
@@ -205,7 +211,7 @@ export const storeTokens = async (access: string, refresh: string) => {
 
 export const getAccessToken = async (): Promise<string | null> => {
   try {
-    const token = await SecureStore.getItemAsync(ACCESS_KEY);
+    const token = (await SecureStore.getItemAsync(ACCESS_KEY)) ?? _memAccess;
     if (!token) return null;
     const payload = decodeJWT(token);
     if (payload?.exp !== undefined) {
@@ -262,13 +268,15 @@ export const getDjangoIdFromToken = async (): Promise<number | null> => {
 
 export const getRefreshToken = async (): Promise<string | null> => {
   try {
-    return await SecureStore.getItemAsync(REFRESH_KEY);
+    return (await SecureStore.getItemAsync(REFRESH_KEY)) ?? _memRefresh;
   } catch {
-    return null;
+    return _memRefresh;
   }
 };
 
 export const clearTokens = async () => {
+  _memAccess = null;
+  _memRefresh = null;
   try {
     await Promise.all([
       SecureStore.deleteItemAsync(ACCESS_KEY),

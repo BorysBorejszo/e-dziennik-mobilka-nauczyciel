@@ -758,12 +758,19 @@ export const createMessage = async (
       odbiorca_id: payload.odbiorca_id,
       temat: payload.temat,
     });
+    // API uses FK field names "nadawca"/"odbiorca", not "nadawca_id"/"odbiorca_id"
+    const apiPayload = {
+      nadawca: payload.nadawca_id,
+      odbiorca: payload.odbiorca_id,
+      temat: payload.temat,
+      tresc: payload.tresc,
+    };
     const response = await authenticatedFetch(
       `${getApiBaseUrl()}/api/wiadomosci/`,
       {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify(payload),
+        body: JSON.stringify(apiPayload),
       },
     );
     if (!response.ok) {
@@ -807,6 +814,41 @@ export const updateMessage = async (
 export default function MessagesApiRoute() {
   return null;
 }
+
+// Conversation item returned by /api/wiadomosci/konwersacje/
+export type Conversation = {
+  partner: {
+    id: number;
+    username: string;
+    first_name: string;
+    last_name: string;
+  };
+  ostatnia_wiadomosc: {
+    id: number;
+    tresc: string;
+    temat: string;
+    nadawca: number;
+    data_wyslania: string;
+    przeczytana: boolean;
+  };
+  nieprzeczytane: number;
+};
+
+export const getConversations = async (): Promise<Conversation[]> => {
+  try {
+    const res = await authenticatedFetch(
+      `${getApiBaseUrl()}/api/wiadomosci/konwersacje/`,
+      { headers: headers() },
+    );
+    if (!res?.ok) return [];
+    const json = await res.json().catch(() => null);
+    if (!json) return [];
+    return Array.isArray(json) ? json : (json.results ?? []);
+  } catch (e) {
+    console.error("[messages] getConversations error", e);
+    return [];
+  }
+};
 
 // DELETE message
 export const deleteMessage = async (id: number): Promise<boolean> => {
